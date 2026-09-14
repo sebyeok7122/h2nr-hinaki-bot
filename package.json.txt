@@ -1,0 +1,12 @@
+{
+  "name": "hinaki-bot",
+  "version": "1.0.0",
+  "description": "희희낙락 공식 Discord 앱 희낙이봇",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.21.0"
+  }
+}
