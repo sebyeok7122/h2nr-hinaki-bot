@@ -30,4 +30,18 @@ client.once('ready', () => {
 
 client.login(
   process.env.DISCORD_BOT_TOKEN
+);const token = process.env.DISCORD_BOT_TOKEN;
+
+console.log('===== 희낙이봇 토큰 진단 =====');
+console.log('변수 존재:', Boolean(token));
+console.log('변수 타입:', typeof token);
+console.log('문자 길이:', token ? token.length : 0);
+console.log(
+  '앞뒤 공백 존재:',
+  token ? token !== token.trim() : false
+);
+console.log('============================');
+
+client.login(
+  token ? token.trim() : token
 );
