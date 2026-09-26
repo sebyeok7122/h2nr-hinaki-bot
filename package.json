@@ -8,6 +8,7 @@
     "deploy": "node deploy-commands.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "discord.js": "^14.21.0"
   }
 }
