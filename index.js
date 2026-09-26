@@ -13,6 +13,10 @@ const {
   handleInteraction
 } = require('./src/handlers/interactionHandler');
 
+const {
+  initDatabase
+} = require('./src/database/db');
+
 const token = process.env.DISCORD_BOT_TOKEN?.trim();
 
 if (!token) {
@@ -20,6 +24,8 @@ if (!token) {
     'DISCORD_BOT_TOKEN 환경변수가 설정되어 있지 않습니다.'
   );
 }
+
+initDatabase();
 
 const client = new Client({
   intents: [
