@@ -4,6 +4,12 @@ const {
   ActivityType
 } = require('discord.js');
 
+const token = process.env.DISCORD_BOT_TOKEN?.trim();
+
+if (!token) {
+  throw new Error('DISCORD_BOT_TOKEN 환경변수가 설정되어 있지 않습니다.');
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds
@@ -11,10 +17,7 @@ const client = new Client({
 });
 
 client.once('ready', () => {
-
-  console.log(
-    `💛 희낙이봇 온라인 완료: ${client.user.tag}`
-  );
+  console.log(`💛 희낙이봇 온라인 완료: ${client.user.tag}`);
 
   client.user.setPresence({
     activities: [
@@ -25,23 +28,6 @@ client.once('ready', () => {
     ],
     status: 'online'
   });
-
 });
 
-client.login(
-  process.env.DISCORD_BOT_TOKEN
-);const token = process.env.DISCORD_BOT_TOKEN;
-
-console.log('===== 희낙이봇 토큰 진단 =====');
-console.log('변수 존재:', Boolean(token));
-console.log('변수 타입:', typeof token);
-console.log('문자 길이:', token ? token.length : 0);
-console.log(
-  '앞뒤 공백 존재:',
-  token ? token !== token.trim() : false
-);
-console.log('============================');
-
-client.login(
-  token ? token.trim() : token
-);
+client.login(token);
