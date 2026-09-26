@@ -1,22 +1,44 @@
-async function handleInteraction(client, interaction) {
+const {
+  handleRecruitSetupInteraction
+} = require('./recruitSetupHandler');
+
+async function handleInteraction(
+  client,
+  interaction
+) {
   try {
-    if (!interaction.isChatInputCommand()) {
-      return;
-    }
+    if (
+      interaction.isChatInputCommand()
+    ) {
+      const command =
+        client.commands.get(
+          interaction.commandName
+        );
 
-    const command = client.commands.get(
-      interaction.commandName
-    );
+      if (!command) {
+        console.warn(
+          `⚠️ 등록되지 않은 명령어 호출: ${interaction.commandName}`
+        );
 
-    if (!command) {
-      console.warn(
-        `⚠️ 등록되지 않은 명령어 호출: ${interaction.commandName}`
+        return;
+      }
+
+      await command.execute(
+        interaction,
+        client
       );
 
       return;
     }
 
-    await command.execute(interaction, client);
+    const recruitHandled =
+      await handleRecruitSetupInteraction(
+        interaction
+      );
+
+    if (recruitHandled) {
+      return;
+    }
 
   } catch (error) {
     console.error(
@@ -25,7 +47,8 @@ async function handleInteraction(client, interaction) {
     );
 
     const errorMessage = {
-      content: '❌ 명령어 처리 중 오류가 발생했습니다.',
+      content:
+        '❌ 처리 중 오류가 발생했습니다.',
       ephemeral: true,
     };
 
