@@ -1,53 +1,182 @@
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
-  UserSelectMenuBuilder
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder
 } = require('discord.js');
 
 const {
-  createSetupSession
+  createSetupSession,
+  updateSetupSession
 } = require('../../services/recruitSetupService');
+
+
+function buildHourOptions() {
+  const options = [];
+
+  for (
+    let hour = 0;
+    hour < 24;
+    hour += 1
+  ) {
+    const value =
+      String(hour).padStart(
+        2,
+        '0'
+      );
+
+    options.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel(`${value}시`)
+        .setValue(value)
+    );
+  }
+
+  return options;
+}
+
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('일반구인')
     .setDescription(
       '일반게임 스쿼드 구인을 생성합니다.'
+    )
+
+    .addUserOption(
+      (option) =>
+        option
+          .setName('멤버1')
+          .setDescription(
+            '현재 함께 있는 멤버'
+          )
+          .setRequired(true)
+    )
+
+    .addUserOption(
+      (option) =>
+        option
+          .setName('멤버2')
+          .setDescription(
+            '현재 함께 있는 멤버'
+          )
+          .setRequired(false)
+    )
+
+    .addUserOption(
+      (option) =>
+        option
+          .setName('멤버3')
+          .setDescription(
+            '현재 함께 있는 멤버'
+          )
+          .setRequired(false)
+    )
+
+    .addUserOption(
+      (option) =>
+        option
+          .setName('멤버4')
+          .setDescription(
+            '현재 함께 있는 멤버'
+          )
+          .setRequired(false)
     ),
 
-  async execute(interaction) {
-    createSetupSession({
-      guildId: interaction.guildId,
-      userId: interaction.user.id,
 
-      type: 'GENERAL',
-      capacity: 4,
-      voiceKind: 'SQUAD',
+  async execute(interaction) {
+    const selectedUsers = [
+      interaction.options.getUser(
+        '멤버1',
+        true
+      ),
+
+      interaction.options.getUser(
+        '멤버2'
+      ),
+
+      interaction.options.getUser(
+        '멤버3'
+      ),
+
+      interaction.options.getUser(
+        '멤버4'
+      ),
+    ].filter(Boolean);
+
+
+    const memberIds = [
+      ...new Set(
+        selectedUsers.map(
+          (user) => user.id
+        )
+      ),
+    ];
+
+
+    createSetupSession({
+      guildId:
+        interaction.guildId,
+
+      userId:
+        interaction.user.id,
+
+      type:
+        'GENERAL',
+
+      capacity:
+        4,
+
+      voiceKind:
+        'SQUAD',
     });
 
-    const memberSelect =
-      new UserSelectMenuBuilder()
+
+    updateSetupSession(
+      interaction.guildId,
+      interaction.user.id,
+      {
+        memberIds,
+      }
+    );
+
+
+    const mentions =
+      memberIds
+        .map(
+          (id) => `<@${id}>`
+        )
+        .join(' ');
+
+
+    const hourSelect =
+      new StringSelectMenuBuilder()
         .setCustomId(
-          'recruit_setup_members'
+          'recruit_setup_hour'
         )
         .setPlaceholder(
-          '현재 함께 있는 멤버를 선택해주세요'
+          '시작 예정 시간을 선택해주세요'
         )
-        .setMinValues(1)
-        .setMaxValues(4);
+        .addOptions(
+          buildHourOptions()
+        );
+
 
     const row =
       new ActionRowBuilder()
         .addComponents(
-          memberSelect
+          hourSelect
         );
+
 
     await interaction.reply({
       content:
         '🎮 **일반게임 구인 설정**\n\n' +
-        '① 현재 함께 있는 멤버를 선택해주세요.\n' +
-        '최대 **4명**까지 선택할 수 있어요.',
+        `✅ 현재 멤버: ${mentions}\n\n` +
+        '② 시작 예정 **시간**을 선택해주세요.',
+
       components: [row],
+
       ephemeral: true,
     });
   },
