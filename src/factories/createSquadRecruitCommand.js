@@ -8,7 +8,7 @@ const {
 const {
   createSetupSession,
   updateSetupSession
-} = require('../../services/recruitSetupService');
+} = require('../services/recruitSetupService');
 
 
 function buildHourOptions() {
