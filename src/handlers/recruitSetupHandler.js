@@ -23,6 +23,76 @@ const {
 } = require('../ui/recruitMessageBuilder');
 
 
+const SETUP_TITLES = {
+  GENERAL:
+    '🎮 일반게임 구인',
+
+  RANKED:
+    '🏆 경쟁전 구인',
+
+  GENERAL_HARD:
+    '🔥 일반 빡겜 구인',
+
+  RANKED_HARD:
+    '🔥🏆 경쟁 빡겜 구인',
+
+  NEWBIE:
+    '🌱 신입 파티 구해요!',
+
+  DUO:
+    '💕 듀오 구인',
+
+  OTHER_GAME:
+    '🎮 종겜 구인',
+
+  MERCENARY:
+    '🪖 용병 구인',
+};
+
+
+const COMPLETE_TITLES = {
+  GENERAL:
+    '일반게임 구인',
+
+  RANKED:
+    '경쟁전 구인',
+
+  GENERAL_HARD:
+    '일반 빡겜 구인',
+
+  RANKED_HARD:
+    '경쟁 빡겜 구인',
+
+  NEWBIE:
+    '신입 파티',
+
+  DUO:
+    '듀오 구인',
+
+  OTHER_GAME:
+    '종겜 구인',
+
+  MERCENARY:
+    '용병 구인',
+};
+
+
+function getSetupTitle(type) {
+  return (
+    SETUP_TITLES[type] ||
+    SETUP_TITLES.GENERAL
+  );
+}
+
+
+function getCompleteTitle(type) {
+  return (
+    COMPLETE_TITLES[type] ||
+    COMPLETE_TITLES.GENERAL
+  );
+}
+
+
 function buildHourOptions() {
   const options = [];
 
@@ -141,7 +211,7 @@ async function handleRecruitSetupInteraction(
 
     await interaction.update({
       content:
-        '🎮 **일반게임 구인 설정**\n\n' +
+        `${getSetupTitle(session.type)} **설정**\n\n` +
         `✅ 현재 멤버: ${getMentionList(interaction.values)}\n\n` +
         '② 시작 예정 **시간**을 선택해주세요.',
       components: [row],
@@ -203,7 +273,7 @@ async function handleRecruitSetupInteraction(
 
     await interaction.update({
       content:
-        '🎮 **일반게임 구인 설정**\n\n' +
+        `${getSetupTitle(session.type)} **설정**\n\n` +
         `✅ 현재 멤버: ${getMentionList(session.memberIds)}\n` +
         `✅ 시작 시간: **${hour}시**\n\n` +
         '③ 시작 예정 **분**을 선택해주세요.',
@@ -266,7 +336,7 @@ async function handleRecruitSetupInteraction(
 
     await interaction.update({
       content:
-        '🎮 **일반게임 구인 설정**\n\n' +
+        `${getSetupTitle(session.type)} **설정**\n\n` +
         `✅ 현재 멤버: ${getMentionList(session.memberIds)}\n` +
         `✅ 시작 예정: **${session.hour}:${minute}**\n\n` +
         '④ 사용할 **스쿼드방**을 선택해주세요.',
@@ -376,7 +446,7 @@ async function handleRecruitSetupInteraction(
 
       await interaction.update({
         content:
-          '✅ **일반게임 구인 생성 완료!**\n\n' +
+          `✅ **${getCompleteTitle(session.type)} 생성 완료!**\n\n` +
           `🔊 스쿼드 ${roomNumber}번방\n` +
           `🕘 ${startTime}\n\n` +
           `[👉 구인글 바로가기](${recruitMessage.url})`,

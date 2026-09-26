@@ -4,13 +4,13 @@ const {
 
 module.exports =
   createSquadRecruitCommand({
-    name: '일반구인',
+    name: '경쟁빡겜',
 
     description:
-      '일반게임 스쿼드 구인을 생성합니다.',
+      '경쟁 빡겜 스쿼드 구인을 생성합니다.',
 
-    type: 'GENERAL',
+    type: 'RANKED_HARD',
 
     title:
-      '🎮 일반게임 구인',
+      '🔥 경쟁 빡겜 구인 🔥',
   });
