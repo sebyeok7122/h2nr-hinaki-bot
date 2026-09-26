@@ -465,6 +465,9 @@ async function handleRecruitSetupInteraction(
           gameName:
             session.gameName || null,
 
+          newbieMemberIds:
+            session.newbieMemberIds || [],
+
           capacity:
             session.capacity,
 

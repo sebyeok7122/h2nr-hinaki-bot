@@ -10,6 +10,7 @@ const TYPE_META = {
   GENERAL: {
     title:
       '🎮 일반게임 구인',
+
     fullTitle:
       '✅ 모집 완료',
   },
@@ -17,6 +18,7 @@ const TYPE_META = {
   RANKED: {
     title:
       '🏆 경쟁전 구인',
+
     fullTitle:
       '✅ 경쟁전 모집 완료',
   },
@@ -24,6 +26,7 @@ const TYPE_META = {
   GENERAL_HARD: {
     title:
       '🔥 일반 빡겜 구인',
+
     fullTitle:
       '✅ 일반 빡겜 모집 완료',
   },
@@ -31,6 +34,7 @@ const TYPE_META = {
   RANKED_HARD: {
     title:
       '🔥🏆 경쟁 빡겜 구인',
+
     fullTitle:
       '✅ 경쟁 빡겜 모집 완료',
   },
@@ -38,6 +42,7 @@ const TYPE_META = {
   NEWBIE: {
     title:
       '🌱 신입 파티 구해요!',
+
     fullTitle:
       '🌱 신입 파티 모집 완료!',
   },
@@ -45,6 +50,7 @@ const TYPE_META = {
   DUO: {
     title:
       '💕 듀오 구인',
+
     fullTitle:
       '✅ 듀오 모집 완료!',
   },
@@ -52,6 +58,7 @@ const TYPE_META = {
   OTHER_GAME: {
     title:
       '🎮 종겜 구인',
+
     fullTitle:
       '✅ 종겜 모집 완료!',
   },
@@ -59,6 +66,7 @@ const TYPE_META = {
   MERCENARY: {
     title:
       '🪖 용병 구인',
+
     fullTitle:
       '✅ 용병 모집 완료!',
   },
@@ -66,10 +74,17 @@ const TYPE_META = {
 
 
 const VOICE_KIND_LABELS = {
-  SQUAD: '스쿼드',
-  DUO: '듀오',
-  OTHER_GAME: '종겜',
-  MERCENARY: '용병',
+  SQUAD:
+    '스쿼드',
+
+  DUO:
+    '듀오',
+
+  OTHER_GAME:
+    '종겜',
+
+  MERCENARY:
+    '용병',
 };
 
 
@@ -106,11 +121,13 @@ function getRecruitmentTitle(
     );
   }
 
+
   const meta =
     TYPE_META[
       recruitment.type
     ] ||
     TYPE_META.GENERAL;
+
 
   return isFull
     ? meta.fullTitle
@@ -126,6 +143,7 @@ function getVoiceRoomLabel(
       recruitment.voice_kind
     ] || '스쿼드';
 
+
   return (
     `${label} ` +
     `${recruitment.voice_room_number}번방`
@@ -133,11 +151,51 @@ function getVoiceRoomLabel(
 }
 
 
-function buildRecruitmentMessage(
-  snapshot,
-  {
-    pingHere = false,
-  } = {}
+function buildNewbieDescription(
+  snapshot
+) {
+  const {
+    recruitment,
+    memberIds,
+    newbieMemberIds,
+    memberCount,
+    remaining,
+    isFull,
+  } = snapshot;
+
+
+  if (isFull) {
+    return [
+      `🔊 **${getVoiceRoomLabel(recruitment)}**`,
+      `👥 **${memberCount} / ${recruitment.capacity} FULL**`,
+      `🕘 시작 예정 **${recruitment.start_time}**`,
+      `👤 ${getMentionList(memberIds)}`,
+    ].join('\n');
+  }
+
+
+  const newbieMentions =
+    newbieMemberIds.length > 0
+      ? getMentionList(
+          newbieMemberIds
+        )
+      : '현재 신입 없음';
+
+
+  return [
+    `🔊 **${getVoiceRoomLabel(recruitment)}**`,
+    `👥 현재 인원 **${memberCount} / ${recruitment.capacity}**`,
+    `🕘 시작 예정 **${recruitment.start_time}**`,
+    `🌱 신입 ${newbieMentions}`,
+    `➕ **${remaining}명 모집 중**`,
+    '',
+    '처음 같이 하는 분들도 부담 없이 참여해주세요!',
+  ].join('\n');
+}
+
+
+function buildNormalDescription(
+  snapshot
 ) {
   const {
     recruitment,
@@ -147,12 +205,14 @@ function buildRecruitmentMessage(
     isFull,
   } = snapshot;
 
+
   const description = [
     `🔊 **${getVoiceRoomLabel(recruitment)}**`,
     `👥 현재 인원 **${memberCount} / ${recruitment.capacity}${isFull ? ' FULL' : ''}**`,
     `🕘 시작 예정 **${recruitment.start_time}**`,
     `👤 ${getMentionList(memberIds)}`,
   ];
+
 
   if (
     recruitment.type ===
@@ -164,12 +224,41 @@ function buildRecruitmentMessage(
     );
   }
 
+
   description.push(
     '',
     isFull
       ? '✅ 모집이 완료되었습니다!'
       : `🔎 **${remaining}자리 모집 중**`
   );
+
+
+  return description.join('\n');
+}
+
+
+function buildRecruitmentMessage(
+  snapshot,
+  {
+    pingHere = false,
+  } = {}
+) {
+  const {
+    recruitment,
+    isFull,
+  } = snapshot;
+
+
+  const description =
+    recruitment.type ===
+    'NEWBIE'
+      ? buildNewbieDescription(
+          snapshot
+        )
+      : buildNormalDescription(
+          snapshot
+        );
+
 
   const embed =
     new EmbedBuilder()
@@ -180,8 +269,9 @@ function buildRecruitmentMessage(
         )
       )
       .setDescription(
-        description.join('\n')
+        description
       );
+
 
   const buttons =
     new ActionRowBuilder()
@@ -222,10 +312,16 @@ function buildRecruitmentMessage(
           )
       );
 
+
   return {
-    content: '@here',
-    embeds: [embed],
-    components: [buttons],
+    content:
+      '@here',
+
+    embeds:
+      [embed],
+
+    components:
+      [buttons],
 
     allowedMentions: {
       parse:

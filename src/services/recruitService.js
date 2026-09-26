@@ -3,6 +3,30 @@ const {
 } = require('../database/db');
 
 
+/*
+ * 신입파티에서 어떤 멤버가 신입인지
+ * 재시작 후에도 기억하기 위한 보조 테이블입니다.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recruitment_newbies (
+    recruitment_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+
+    created_at TEXT NOT NULL
+      DEFAULT (datetime('now')),
+
+    PRIMARY KEY (
+      recruitment_id,
+      user_id
+    ),
+
+    FOREIGN KEY (recruitment_id)
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
+  );
+`);
+
+
 const selectRecruitment = db.prepare(`
   SELECT *
   FROM recruitments
@@ -17,6 +41,14 @@ const selectActiveMembers = db.prepare(`
     recruitment_id = ?
     AND is_active = 1
   ORDER BY joined_at ASC
+`);
+
+
+const selectNewbieMembers = db.prepare(`
+  SELECT user_id
+  FROM recruitment_newbies
+  WHERE recruitment_id = ?
+  ORDER BY created_at ASC
 `);
 
 
@@ -91,6 +123,15 @@ const upsertMember = db.prepare(`
     is_active = 1,
     joined_at = datetime('now'),
     left_at = NULL
+`);
+
+
+const insertNewbieMember = db.prepare(`
+  INSERT OR IGNORE INTO recruitment_newbies (
+    recruitment_id,
+    user_id
+  )
+  VALUES (?, ?)
 `);
 
 
@@ -211,12 +252,27 @@ function getRecruitmentSnapshot(
         (row) => row.user_id
       );
 
+
+  const newbieMemberIds =
+    selectNewbieMembers
+      .all(recruitmentId)
+      .map(
+        (row) => row.user_id
+      )
+      .filter(
+        (userId) =>
+          memberIds.includes(userId)
+      );
+
+
   const memberCount =
     memberIds.length;
+
 
   return {
     recruitment,
     memberIds,
+    newbieMemberIds,
     memberCount,
 
     remaining:
@@ -240,6 +296,7 @@ const createRecruitmentTransaction =
       data.capacity
         ? 'FULL'
         : 'OPEN';
+
 
     const result =
       insertRecruitment.run({
@@ -273,10 +330,12 @@ const createRecruitmentTransaction =
         status,
       });
 
+
     const recruitmentId =
       Number(
         result.lastInsertRowid
       );
+
 
     for (
       const userId of data.memberIds
@@ -286,6 +345,18 @@ const createRecruitmentTransaction =
         userId
       );
     }
+
+
+    for (
+      const userId of
+        data.newbieMemberIds || []
+    ) {
+      insertNewbieMember.run(
+        recruitmentId,
+        userId
+      );
+    }
+
 
     return {
       id: recruitmentId,
@@ -311,6 +382,7 @@ const joinRecruitmentTransaction =
         };
       }
 
+
       if (
         ![
           'OPEN',
@@ -323,6 +395,7 @@ const joinRecruitmentTransaction =
           code: 'CLOSED',
         };
       }
+
 
       const alreadyMember =
         selectActiveMember.get(
@@ -337,10 +410,12 @@ const joinRecruitmentTransaction =
         };
       }
 
+
       const currentCount =
         countActiveMembers.get(
           recruitmentId
         ).count;
+
 
       if (
         currentCount >=
@@ -356,13 +431,16 @@ const joinRecruitmentTransaction =
         };
       }
 
+
       upsertMember.run(
         recruitmentId,
         userId
       );
 
+
       const newCount =
         currentCount + 1;
+
 
       const newStatus =
         newCount >=
@@ -370,10 +448,12 @@ const joinRecruitmentTransaction =
           ? 'FULL'
           : 'OPEN';
 
+
       updateRecruitmentStatus.run(
         newStatus,
         recruitmentId
       );
+
 
       return {
         code: 'JOINED',
@@ -404,6 +484,7 @@ const cancelRecruitmentTransaction =
         };
       }
 
+
       const activeMember =
         selectActiveMember.get(
           recruitmentId,
@@ -417,15 +498,18 @@ const cancelRecruitmentTransaction =
         };
       }
 
+
       const beforeCount =
         countActiveMembers.get(
           recruitmentId
         ).count;
 
+
       deactivateMember.run(
         recruitmentId,
         userId
       );
+
 
       const afterCount =
         Math.max(
@@ -433,16 +517,19 @@ const cancelRecruitmentTransaction =
           0
         );
 
+
       const becameAvailable =
         beforeCount >=
           recruitment.capacity &&
         afterCount <
           recruitment.capacity;
 
+
       updateRecruitmentStatus.run(
         'OPEN',
         recruitmentId
       );
+
 
       return {
         code:
@@ -497,11 +584,13 @@ function addRecruitmentWatcher(
       recruitmentId
     );
 
+
   if (!snapshot) {
     return {
       code: 'NOT_FOUND',
     };
   }
+
 
   if (
     snapshot.memberIds.includes(
@@ -514,6 +603,7 @@ function addRecruitmentWatcher(
     };
   }
 
+
   if (!snapshot.isFull) {
     return {
       code:
@@ -521,11 +611,13 @@ function addRecruitmentWatcher(
     };
   }
 
+
   const existing =
     selectActiveWatcher.get(
       recruitmentId,
       userId
     );
+
 
   if (existing) {
     return {
@@ -534,10 +626,12 @@ function addRecruitmentWatcher(
     };
   }
 
+
   upsertWatcher.run(
     recruitmentId,
     userId
   );
+
 
   return {
     code:
@@ -572,6 +666,7 @@ function markWatchersNotified(
         );
       }
     });
+
 
   transaction();
 }
