@@ -47,6 +47,7 @@ const insertRecruitment = db.prepare(`
     creator_id,
     voice_kind,
     voice_room_number,
+    game_name,
     capacity,
     start_time,
     status
@@ -58,6 +59,7 @@ const insertRecruitment = db.prepare(`
     @creatorId,
     @voiceKind,
     @voiceRoomNumber,
+    @gameName,
     @capacity,
     @startTime,
     @status
@@ -241,15 +243,33 @@ const createRecruitmentTransaction =
 
     const result =
       insertRecruitment.run({
-        guildId: data.guildId,
-        channelId: data.channelId,
-        type: data.type,
-        creatorId: data.creatorId,
-        voiceKind: data.voiceKind,
+        guildId:
+          data.guildId,
+
+        channelId:
+          data.channelId,
+
+        type:
+          data.type,
+
+        creatorId:
+          data.creatorId,
+
+        voiceKind:
+          data.voiceKind,
+
         voiceRoomNumber:
           data.voiceRoomNumber,
-        capacity: data.capacity,
-        startTime: data.startTime,
+
+        gameName:
+          data.gameName || null,
+
+        capacity:
+          data.capacity,
+
+        startTime:
+          data.startTime,
+
         status,
       });
 
@@ -425,7 +445,9 @@ const cancelRecruitmentTransaction =
       );
 
       return {
-        code: 'CANCELLED',
+        code:
+          'CANCELLED',
+
         becameAvailable,
 
         snapshot:
@@ -494,7 +516,8 @@ function addRecruitmentWatcher(
 
   if (!snapshot.isFull) {
     return {
-      code: 'NOT_FULL',
+      code:
+        'NOT_FULL',
     };
   }
 
@@ -517,7 +540,8 @@ function addRecruitmentWatcher(
   );
 
   return {
-    code: 'WATCHING',
+    code:
+      'WATCHING',
   };
 }
 

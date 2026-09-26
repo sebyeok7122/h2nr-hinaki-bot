@@ -462,6 +462,9 @@ async function handleRecruitSetupInteraction(
           voiceRoomNumber:
             roomNumber,
 
+          gameName:
+            session.gameName || null,
+
           capacity:
             session.capacity,
 
