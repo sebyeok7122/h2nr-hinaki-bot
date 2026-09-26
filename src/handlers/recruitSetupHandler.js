@@ -93,6 +93,43 @@ function getCompleteTitle(type) {
 }
 
 
+function getVoiceRoomConfig(
+  voiceKind
+) {
+  if (voiceKind === 'DUO') {
+    return {
+      label: '듀오',
+      maxRooms: 4,
+    };
+  }
+
+  if (
+    voiceKind ===
+    'OTHER_GAME'
+  ) {
+    return {
+      label: '종겜',
+      maxRooms: 8,
+    };
+  }
+
+  if (
+    voiceKind ===
+    'MERCENARY'
+  ) {
+    return {
+      label: '용병',
+      maxRooms: 3,
+    };
+  }
+
+  return {
+    label: '스쿼드',
+    maxRooms: 13,
+  };
+}
+
+
 function buildHourOptions() {
   const options = [];
 
@@ -135,18 +172,27 @@ function buildMinuteOptions() {
 }
 
 
-function buildSquadRoomOptions() {
+function buildRoomOptions(
+  voiceKind
+) {
+  const {
+    label,
+    maxRooms,
+  } = getVoiceRoomConfig(
+    voiceKind
+  );
+
   const options = [];
 
   for (
     let room = 1;
-    room <= 13;
+    room <= maxRooms;
     room += 1
   ) {
     options.push(
       new StringSelectMenuOptionBuilder()
         .setLabel(
-          `스쿼드 ${room}번방`
+          `${label} ${room}번방`
         )
         .setValue(
           String(room)
@@ -214,6 +260,7 @@ async function handleRecruitSetupInteraction(
         `${getSetupTitle(session.type)} **설정**\n\n` +
         `✅ 현재 멤버: ${getMentionList(interaction.values)}\n\n` +
         '② 시작 예정 **시간**을 선택해주세요.',
+
       components: [row],
     });
 
@@ -277,6 +324,7 @@ async function handleRecruitSetupInteraction(
         `✅ 현재 멤버: ${getMentionList(session.memberIds)}\n` +
         `✅ 시작 시간: **${hour}시**\n\n` +
         '③ 시작 예정 **분**을 선택해주세요.',
+
       components: [row],
     });
 
@@ -316,16 +364,24 @@ async function handleRecruitSetupInteraction(
       }
     );
 
+    const {
+      label,
+    } = getVoiceRoomConfig(
+      session.voiceKind
+    );
+
     const roomSelect =
       new StringSelectMenuBuilder()
         .setCustomId(
           'recruit_setup_room'
         )
         .setPlaceholder(
-          '스쿼드방을 선택해주세요'
+          `${label}방을 선택해주세요`
         )
         .addOptions(
-          buildSquadRoomOptions()
+          buildRoomOptions(
+            session.voiceKind
+          )
         );
 
     const row =
@@ -339,7 +395,8 @@ async function handleRecruitSetupInteraction(
         `${getSetupTitle(session.type)} **설정**\n\n` +
         `✅ 현재 멤버: ${getMentionList(session.memberIds)}\n` +
         `✅ 시작 예정: **${session.hour}:${minute}**\n\n` +
-        '④ 사용할 **스쿼드방**을 선택해주세요.',
+        `④ 사용할 **${label}방**을 선택해주세요.`,
+
       components: [row],
     });
 
@@ -375,6 +432,12 @@ async function handleRecruitSetupInteraction(
 
     const startTime =
       `${session.hour}:${session.minute}`;
+
+    const {
+      label,
+    } = getVoiceRoomConfig(
+      session.voiceKind
+    );
 
     let recruitment;
 
@@ -447,9 +510,10 @@ async function handleRecruitSetupInteraction(
       await interaction.update({
         content:
           `✅ **${getCompleteTitle(session.type)} 생성 완료!**\n\n` +
-          `🔊 스쿼드 ${roomNumber}번방\n` +
+          `🔊 ${label} ${roomNumber}번방\n` +
           `🕘 ${startTime}\n\n` +
           `[👉 구인글 바로가기](${recruitMessage.url})`,
+
         components: [],
       });
 
