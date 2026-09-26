@@ -1,10 +1,7 @@
 const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder
+  StringSelectMenuOptionBuilder
 } = require('discord.js');
 
 const {
@@ -15,9 +12,15 @@ const {
 
 const {
   createRecruitment,
+  getRecruitmentSnapshot,
   setRecruitmentMessageId,
   deleteRecruitment
 } = require('../services/recruitService');
+
+const {
+  buildRecruitmentMessage,
+  getMentionList
+} = require('../ui/recruitMessageBuilder');
 
 
 function buildHourOptions() {
@@ -82,105 +85,6 @@ function buildSquadRoomOptions() {
   }
 
   return options;
-}
-
-
-function getMentionList(memberIds) {
-  return memberIds
-    .map(
-      (id) => `<@${id}>`
-    )
-    .join(' ');
-}
-
-
-function buildRecruitmentMessage({
-  recruitmentId,
-  memberIds,
-  capacity,
-  startTime,
-  roomNumber
-}) {
-  const memberCount =
-    memberIds.length;
-
-  const isFull =
-    memberCount >= capacity;
-
-  const remaining =
-    Math.max(
-      capacity - memberCount,
-      0
-    );
-
-  const embed =
-    new EmbedBuilder()
-      .setTitle(
-        isFull
-          ? '✅ 모집 완료'
-          : '🎮 일반게임 구인'
-      )
-      .setDescription(
-        [
-          `🔊 **스쿼드 ${roomNumber}번방**`,
-          `👥 현재 인원 **${memberCount} / ${capacity}${isFull ? ' FULL' : ''}**`,
-          `🕘 시작 예정 **${startTime}**`,
-          `👤 ${getMentionList(memberIds)}`,
-          '',
-          isFull
-            ? '✅ 모집이 완료되었습니다!'
-            : `🔎 **${remaining}자리 모집 중**`,
-        ].join('\n')
-      );
-
-  const buttons =
-    new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId(
-            `recruit_join:${recruitmentId}`
-          )
-          .setLabel('참여')
-          .setEmoji('✅')
-          .setStyle(
-            ButtonStyle.Success
-          )
-          .setDisabled(isFull),
-
-        new ButtonBuilder()
-          .setCustomId(
-            `recruit_cancel:${recruitmentId}`
-          )
-          .setLabel('취소')
-          .setEmoji('❎')
-          .setStyle(
-            ButtonStyle.Danger
-          ),
-
-        new ButtonBuilder()
-          .setCustomId(
-            `recruit_notify:${recruitmentId}`
-          )
-          .setLabel(
-            '자리나면 알림'
-          )
-          .setEmoji('🔔')
-          .setStyle(
-            ButtonStyle.Secondary
-          )
-      );
-
-  return {
-    content: '@here',
-    embeds: [embed],
-    components: [buttons],
-
-    allowedMentions: {
-      parse: [
-        'everyone'
-      ],
-    },
-  };
 }
 
 
@@ -434,33 +338,41 @@ async function handleRecruitSetupInteraction(
             session.memberIds,
         });
 
+
+      const snapshot =
+        getRecruitmentSnapshot(
+          recruitment.id
+        );
+
+      if (!snapshot) {
+        throw new Error(
+          '생성된 구인 정보를 DB에서 찾을 수 없습니다.'
+        );
+      }
+
+
       const recruitMessage =
         await interaction.channel.send(
-          buildRecruitmentMessage({
-            recruitmentId:
-              recruitment.id,
-
-            memberIds:
-              session.memberIds,
-
-            capacity:
-              session.capacity,
-
-            startTime,
-
-            roomNumber,
-          })
+          buildRecruitmentMessage(
+            snapshot,
+            {
+              pingHere: true,
+            }
+          )
         );
+
 
       setRecruitmentMessageId(
         recruitment.id,
         recruitMessage.id
       );
 
+
       deleteSetupSession(
         interaction.guildId,
         interaction.user.id
       );
+
 
       await interaction.update({
         content:

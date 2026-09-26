@@ -2,6 +2,11 @@ const {
   handleRecruitSetupInteraction
 } = require('./recruitSetupHandler');
 
+const {
+  handleRecruitButtonInteraction
+} = require('./recruitButtonHandler');
+
+
 async function handleInteraction(
   client,
   interaction
@@ -31,12 +36,28 @@ async function handleInteraction(
       return;
     }
 
-    const recruitHandled =
+
+    const recruitSetupHandled =
       await handleRecruitSetupInteraction(
         interaction
       );
 
-    if (recruitHandled) {
+    if (
+      recruitSetupHandled
+    ) {
+      return;
+    }
+
+
+    const recruitButtonHandled =
+      await handleRecruitButtonInteraction(
+        client,
+        interaction
+      );
+
+    if (
+      recruitButtonHandled
+    ) {
       return;
     }
 
@@ -73,6 +94,7 @@ async function handleInteraction(
     }
   }
 }
+
 
 module.exports = {
   handleInteraction,
