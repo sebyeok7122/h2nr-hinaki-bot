@@ -55,12 +55,22 @@ const VOICE_CHANNEL_IDS = {
   },
 
 
-  /*
-   * 종겜 음성채널 ID는
-   * 나중에 확인 후 추가합니다.
-   */
   OTHER_GAME: {},
 };
+
+
+const parsedNewbieMinutes =
+  Number.parseInt(
+    process.env.NEWBIE_ACTIVITY_MINUTES || '20',
+    10
+  );
+
+
+const NEWBIE_ACTIVITY_MINUTES =
+  Number.isInteger(parsedNewbieMinutes) &&
+  parsedNewbieMinutes > 0
+    ? parsedNewbieMinutes
+    : 20;
 
 
 const RECRUIT_CONFIG = {
@@ -77,7 +87,8 @@ const RECRUIT_CONFIG = {
 
   NEWBIE_ACTIVITY_POINTS: 3,
 
-  NEWBIE_MIN_VOICE_MINUTES: 20,
+  NEWBIE_MIN_VOICE_MINUTES:
+    NEWBIE_ACTIVITY_MINUTES,
 };
 
 
