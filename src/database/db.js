@@ -4,28 +4,48 @@ const Database = require('better-sqlite3');
 
 const DATA_DIR =
   process.env.HINAKI_DATA_DIR ||
-  path.join(__dirname, '..', '..', 'data');
+  path.join(
+    __dirname,
+    '..',
+    '..',
+    'data'
+  );
 
-fs.mkdirSync(DATA_DIR, {
-  recursive: true,
-});
-
-const DB_PATH = path.join(
+fs.mkdirSync(
   DATA_DIR,
-  'heenak.db'
+  {
+    recursive: true,
+  }
 );
 
-const db = new Database(DB_PATH);
+const DB_PATH =
+  path.join(
+    DATA_DIR,
+    'heenak.db'
+  );
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-db.pragma('busy_timeout = 5000');
+const db =
+  new Database(DB_PATH);
+
+db.pragma(
+  'journal_mode = WAL'
+);
+
+db.pragma(
+  'foreign_keys = ON'
+);
+
+db.pragma(
+  'busy_timeout = 5000'
+);
+
 
 function initDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       guild_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+
       points INTEGER NOT NULL DEFAULT 0
         CHECK(points >= 0),
 
@@ -35,7 +55,10 @@ function initDatabase() {
       updated_at TEXT NOT NULL
         DEFAULT (datetime('now')),
 
-      PRIMARY KEY (guild_id, user_id)
+      PRIMARY KEY (
+        guild_id,
+        user_id
+      )
     );
 
 
@@ -46,6 +69,7 @@ function initDatabase() {
       user_id TEXT NOT NULL,
 
       amount INTEGER NOT NULL,
+
       balance_after INTEGER NOT NULL
         CHECK(balance_after >= 0),
 
@@ -112,9 +136,35 @@ function initDatabase() {
         user_id
       ),
 
-      FOREIGN KEY (recruitment_id)
-        REFERENCES recruitments(id)
-        ON DELETE CASCADE
+      FOREIGN KEY (
+        recruitment_id
+      )
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
+    );
+
+
+    /*
+     * 신입파티에서
+     * 어떤 멤버가 신입인지 저장합니다.
+     */
+    CREATE TABLE IF NOT EXISTS recruitment_newbies (
+      recruitment_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+
+      created_at TEXT NOT NULL
+        DEFAULT (datetime('now')),
+
+      PRIMARY KEY (
+        recruitment_id,
+        user_id
+      ),
+
+      FOREIGN KEY (
+        recruitment_id
+      )
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
     );
 
 
@@ -135,12 +185,69 @@ function initDatabase() {
         user_id
       ),
 
-      FOREIGN KEY (recruitment_id)
-        REFERENCES recruitments(id)
-        ON DELETE CASCADE
+      FOREIGN KEY (
+        recruitment_id
+      )
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
     );
 
 
+    /*
+     * 신입파티 한 판의
+     * 음성 활동시간 진행상황입니다.
+     *
+     * accumulated_seconds:
+     * 지금까지 인정된 누적 시간
+     *
+     * running_since:
+     * 전원이 모여 카운트가 시작된 시각
+     *
+     * is_running:
+     * 현재 시간 누적 중인지 여부
+     *
+     * completed:
+     * 활동 조건을 이미 완료했는지 여부
+     */
+    CREATE TABLE IF NOT EXISTS newbie_party_progress (
+      recruitment_id INTEGER PRIMARY KEY,
+
+      guild_id TEXT NOT NULL,
+
+      accumulated_seconds INTEGER NOT NULL DEFAULT 0
+        CHECK(accumulated_seconds >= 0),
+
+      running_since TEXT,
+
+      is_running INTEGER NOT NULL DEFAULT 0
+        CHECK(is_running IN (0, 1)),
+
+      completed INTEGER NOT NULL DEFAULT 0
+        CHECK(completed IN (0, 1)),
+
+      completed_at TEXT,
+
+      created_at TEXT NOT NULL
+        DEFAULT (datetime('now')),
+
+      updated_at TEXT NOT NULL
+        DEFAULT (datetime('now')),
+
+      FOREIGN KEY (
+        recruitment_id
+      )
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
+    );
+
+
+    /*
+     * 활동 완료 후
+     * 실제 +P 지급을 받은 멤버 기록입니다.
+     *
+     * recruitment_id + user_id가 UNIQUE라서
+     * 같은 파티로 중복 지급할 수 없습니다.
+     */
     CREATE TABLE IF NOT EXISTS newbie_activity (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -165,9 +272,11 @@ function initDatabase() {
         user_id
       ),
 
-      FOREIGN KEY (recruitment_id)
-        REFERENCES recruitments(id)
-        ON DELETE CASCADE
+      FOREIGN KEY (
+        recruitment_id
+      )
+      REFERENCES recruitments(id)
+      ON DELETE CASCADE
     );
 
 
@@ -272,6 +381,22 @@ function initDatabase() {
 
 
     CREATE INDEX IF NOT EXISTS
+      idx_recruitment_newbies_recruitment
+    ON recruitment_newbies (
+      recruitment_id
+    );
+
+
+    CREATE INDEX IF NOT EXISTS
+      idx_newbie_party_progress_status
+    ON newbie_party_progress (
+      guild_id,
+      completed,
+      is_running
+    );
+
+
+    CREATE INDEX IF NOT EXISTS
       idx_newbie_activity_user
     ON newbie_activity (
       guild_id,
@@ -288,10 +413,31 @@ function initDatabase() {
     );
   `);
 
+
+  /*
+   * 봇이 꺼진 동안의 시간은
+   * 활동시간으로 계산하지 않습니다.
+   *
+   * 기존 누적시간은 그대로 보존하고,
+   * 실행 중이던 카운트만 정지 상태로 돌립니다.
+   */
+  db.prepare(`
+    UPDATE newbie_party_progress
+    SET
+      is_running = 0,
+      running_since = NULL,
+      updated_at = datetime('now')
+    WHERE
+      is_running = 1
+      AND completed = 0
+  `).run();
+
+
   console.log(
     `💾 희낙이 DB 준비 완료: ${DB_PATH}`
   );
 }
+
 
 module.exports = {
   db,
