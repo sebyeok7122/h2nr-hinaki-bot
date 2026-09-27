@@ -14,10 +14,15 @@ const {
 } = require('./src/handlers/interactionHandler');
 
 const {
+  handleVoiceStateUpdate
+} = require('./src/handlers/voiceStateHandler');
+
+const {
   initDatabase
 } = require('./src/database/db');
 
-const token = process.env.DISCORD_BOT_TOKEN?.trim();
+const token =
+  process.env.DISCORD_BOT_TOKEN?.trim();
 
 if (!token) {
   throw new Error(
@@ -27,31 +32,44 @@ if (!token) {
 
 initDatabase();
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds
-  ]
-});
+const client =
+  new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildVoiceStates
+    ]
+  });
 
-client.commands = new Collection();
+client.commands =
+  new Collection();
 
 loadCommands(client);
 
-client.once('ready', () => {
-  console.log(
-    `💛 희낙이봇 온라인 완료: ${client.user.tag}`
-  );
 
-  client.user.setPresence({
-    activities: [
-      {
-        name: '💛 희희낙락 공식 앱',
-        type: ActivityType.Custom
-      }
-    ],
-    status: 'online'
-  });
-});
+client.once(
+  'clientReady',
+  () => {
+    console.log(
+      `💛 희낙이봇 온라인 완료: ${client.user.tag}`
+    );
+
+    client.user.setPresence({
+      activities: [
+        {
+          name:
+            '💛 희희낙락 공식 앱',
+
+          type:
+            ActivityType.Custom
+        }
+      ],
+
+      status:
+        'online'
+    });
+  }
+);
+
 
 client.on(
   'interactionCreate',
@@ -62,5 +80,20 @@ client.on(
     );
   }
 );
+
+
+client.on(
+  'voiceStateUpdate',
+  (
+    oldState,
+    newState
+  ) => {
+    handleVoiceStateUpdate(
+      oldState,
+      newState
+    );
+  }
+);
+
 
 client.login(token);
