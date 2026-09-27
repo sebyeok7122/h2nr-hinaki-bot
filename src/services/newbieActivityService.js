@@ -12,6 +12,47 @@ const REQUIRED_SECONDS =
 
 
 /*
+ * 현재 FULL 상태인 신입파티를 찾습니다.
+ */
+const selectFullNewbieParties =
+  db.prepare(`
+    SELECT
+      id,
+      guild_id,
+      voice_kind,
+      voice_room_number,
+      capacity,
+      status
+
+    FROM recruitments
+
+    WHERE
+      guild_id = ?
+      AND type = 'NEWBIE'
+      AND status = 'FULL'
+
+    ORDER BY id ASC
+  `);
+
+
+/*
+ * 특정 구인의 현재 참가자 목록입니다.
+ */
+const selectActivePartyMembers =
+  db.prepare(`
+    SELECT user_id
+
+    FROM recruitment_members
+
+    WHERE
+      recruitment_id = ?
+      AND is_active = 1
+
+    ORDER BY joined_at ASC
+  `);
+
+
+/*
  * 신입파티 진행상황이 없으면 생성합니다.
  */
 const insertProgress = db.prepare(`
@@ -124,6 +165,71 @@ const pauseProgress = db.prepare(`
     AND is_running = 1
     AND running_since IS NOT NULL
 `);
+
+
+function getFullNewbieParties(
+  guildId
+) {
+  const rows =
+    selectFullNewbieParties.all(
+      guildId
+    );
+
+
+  return rows.map(
+    (row) => {
+      const memberIds =
+        selectActivePartyMembers
+          .all(row.id)
+          .map(
+            (memberRow) =>
+              memberRow.user_id
+          );
+
+
+      return {
+        recruitmentId:
+          row.id,
+
+        guildId:
+          row.guild_id,
+
+        voiceKind:
+          row.voice_kind,
+
+        voiceRoomNumber:
+          row.voice_room_number,
+
+        capacity:
+          row.capacity,
+
+        status:
+          row.status,
+
+        memberIds,
+
+        isActuallyFull:
+          memberIds.length >=
+          row.capacity,
+      };
+    }
+  );
+}
+
+
+function getFullNewbiePartiesForMember(
+  guildId,
+  userId
+) {
+  return getFullNewbieParties(
+    guildId
+  ).filter(
+    (party) =>
+      party.memberIds.includes(
+        userId
+      )
+  );
+}
 
 
 function ensureNewbiePartyProgress(
@@ -272,9 +378,14 @@ function isNewbiePartyGoalReached(
 
 
 module.exports = {
+  getFullNewbieParties,
+  getFullNewbiePartiesForMember,
+
   ensureNewbiePartyProgress,
   getNewbiePartyProgress,
+
   startNewbiePartyTimer,
   pauseNewbiePartyTimer,
+
   isNewbiePartyGoalReached,
 };
