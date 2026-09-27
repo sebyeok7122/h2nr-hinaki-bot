@@ -11,7 +11,8 @@ const {
 } = require('../../services/recruitSetupService');
 
 const {
-  ROLE_IDS
+  ROLE_IDS,
+  RECRUIT_CONFIG
 } = require('../../config/constants');
 
 
@@ -45,6 +46,26 @@ module.exports = {
     .setName('신입파티구해요')
     .setDescription(
       '신입과 함께하는 파티 구인을 생성합니다.'
+    )
+
+    .addStringOption(
+      (option) =>
+        option
+          .setName('파티종류')
+          .setDescription(
+            '스쿼드 또는 듀오를 선택해주세요'
+          )
+          .setRequired(true)
+          .addChoices(
+            {
+              name: '🌱 스쿼드 (4인)',
+              value: 'SQUAD',
+            },
+            {
+              name: '💕 듀오 (2인)',
+              value: 'DUO',
+            }
+          )
     )
 
     .addUserOption(
@@ -89,6 +110,35 @@ module.exports = {
 
 
   async execute(interaction) {
+    const partyType =
+      interaction.options.getString(
+        '파티종류',
+        true
+      );
+
+
+    const isDuo =
+      partyType === 'DUO';
+
+
+    const capacity =
+      isDuo
+        ? RECRUIT_CONFIG.DUO_CAPACITY
+        : RECRUIT_CONFIG.SQUAD_CAPACITY;
+
+
+    const voiceKind =
+      isDuo
+        ? 'DUO'
+        : 'SQUAD';
+
+
+    const partyLabel =
+      isDuo
+        ? '💕 듀오'
+        : '🌱 스쿼드';
+
+
     const selectedUsers = [
       interaction.options.getUser(
         '멤버1',
@@ -116,6 +166,23 @@ module.exports = {
         )
       ),
     ];
+
+
+    if (
+      memberIds.length >
+      capacity
+    ) {
+      await interaction.reply({
+        content:
+          isDuo
+            ? '💕 듀오 신입파티는 최대 2명까지 선택할 수 있어요!'
+            : '🌱 스쿼드 신입파티는 최대 4명까지 선택할 수 있어요!',
+
+        ephemeral: true,
+      });
+
+      return;
+    }
 
 
     const newbieMemberIds = [];
@@ -164,11 +231,9 @@ module.exports = {
       type:
         'NEWBIE',
 
-      capacity:
-        4,
+      capacity,
 
-      voiceKind:
-        'SQUAD',
+      voiceKind,
     });
 
 
@@ -221,6 +286,8 @@ module.exports = {
     await interaction.reply({
       content:
         '🌱 **신입 파티 구해요! 설정**\n\n' +
+        `🎮 파티 종류: **${partyLabel}**\n` +
+        `👥 정원: **${capacity}명**\n` +
         `🌱 신입: ${newbieMentions}\n` +
         `✅ 현재 멤버: ${mentions}\n\n` +
         '② 시작 예정 **시간**을 선택해주세요.',
