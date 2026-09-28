@@ -80,6 +80,29 @@ const selectStock =
   `);
 
 
+const upsertStock =
+  db.prepare(`
+    INSERT INTO shop_inventory (
+      product_code,
+      product_name,
+      stock,
+      updated_at
+    )
+    VALUES (
+      ?,
+      ?,
+      ?,
+      datetime('now')
+    )
+
+    ON CONFLICT (product_code)
+    DO UPDATE SET
+      product_name = excluded.product_name,
+      stock = excluded.stock,
+      updated_at = datetime('now')
+  `);
+
+
 const decreaseStock =
   db.prepare(`
     UPDATE shop_inventory
@@ -167,6 +190,79 @@ function getProductStock(
   return row
     ? Number(row.stock)
     : 0;
+}
+
+
+/*
+ * 운영진이 재고를 원하는 수량으로
+ * 직접 설정합니다.
+ *
+ * 예:
+ * 0  → SOLD OUT
+ * 5  → 재고 5개
+ * 10 → 재고 10개
+ */
+function setProductStock(
+  productCode,
+  stock
+) {
+  const product =
+    getProduct(
+      productCode
+    );
+
+
+  if (!product) {
+    return {
+      code:
+        'PRODUCT_NOT_FOUND',
+    };
+  }
+
+
+  if (
+    !product.usesStock
+  ) {
+    return {
+      code:
+        'STOCK_NOT_USED',
+
+      product,
+    };
+  }
+
+
+  if (
+    !Number.isInteger(stock) ||
+    stock < 0
+  ) {
+    return {
+      code:
+        'INVALID_STOCK',
+
+      product,
+    };
+  }
+
+
+  upsertStock.run(
+    product.code,
+    product.name,
+    stock
+  );
+
+
+  return {
+    code:
+      'OK',
+
+    product,
+
+    stock:
+      getProductStock(
+        product.code
+      ),
+  };
 }
 
 
@@ -378,7 +474,9 @@ module.exports = {
 
   getProduct,
   getAllProducts,
+
   getProductStock,
+  setProductStock,
 
   purchaseProduct,
 };
