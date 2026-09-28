@@ -6,12 +6,19 @@ const {
   handleRecruitButtonInteraction
 } = require('./recruitButtonHandler');
 
+const {
+  handleShopInteraction
+} = require('../commands/shop');
+
 
 async function handleInteraction(
   client,
   interaction
 ) {
   try {
+    /*
+     * 슬래시 명령어
+     */
     if (
       interaction.isChatInputCommand()
     ) {
@@ -28,6 +35,7 @@ async function handleInteraction(
         return;
       }
 
+
       await command.execute(
         interaction,
         client
@@ -37,10 +45,14 @@ async function handleInteraction(
     }
 
 
+    /*
+     * 구인 생성 과정
+     */
     const recruitSetupHandled =
       await handleRecruitSetupInteraction(
         interaction
       );
+
 
     if (
       recruitSetupHandled
@@ -49,14 +61,35 @@ async function handleInteraction(
     }
 
 
+    /*
+     * 구인 참여 / 취소 / 알림 버튼
+     */
     const recruitButtonHandled =
       await handleRecruitButtonInteraction(
         client,
         interaction
       );
 
+
     if (
       recruitButtonHandled
+    ) {
+      return;
+    }
+
+
+    /*
+     * 희낙샵
+     * 상품 선택 / 구매 / 닫기
+     */
+    const shopHandled =
+      await handleShopInteraction(
+        interaction
+      );
+
+
+    if (
+      shopHandled
     ) {
       return;
     }
@@ -67,11 +100,15 @@ async function handleInteraction(
       error
     );
 
+
     const errorMessage = {
       content:
         '❌ 처리 중 오류가 발생했습니다.',
-      ephemeral: true,
+
+      ephemeral:
+        true,
     };
+
 
     try {
       if (
@@ -81,11 +118,13 @@ async function handleInteraction(
         await interaction.followUp(
           errorMessage
         );
+
       } else {
         await interaction.reply(
           errorMessage
         );
       }
+
     } catch (replyError) {
       console.error(
         '❌ 오류 메시지 전송 실패:',
