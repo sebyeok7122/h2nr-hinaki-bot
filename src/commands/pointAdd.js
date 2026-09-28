@@ -7,7 +7,8 @@ const {
 } = require('../config/constants');
 
 const {
-  addPoints
+  addPoints,
+  promoteNewbieIfEligible
 } = require('../services/pointService');
 
 
@@ -177,7 +178,7 @@ module.exports = {
     interaction
   ) {
     /*
-     * 운영진 역할 검사
+     * 운영진 전용
      */
     if (
       !interaction.member.roles.cache.has(
@@ -291,6 +292,9 @@ module.exports = {
     }
 
 
+    /*
+     * 포인트 지급
+     */
     const result =
       addPoints({
         guildId:
@@ -328,11 +332,47 @@ module.exports = {
     }
 
 
+    /*
+     * 포인트 지급 직후
+     * 신입 자동등업 조건 확인
+     */
+    const promotionResult =
+      await promoteNewbieIfEligible(
+        interaction.guild,
+        target.id
+      );
+
+
+    let promotionMessage = '';
+
+
+    if (
+      promotionResult.code ===
+      'PROMOTED'
+    ) {
+      promotionMessage =
+        '\n\n🌱➡️💛 **10P 달성! 신입 → 멤버 자동등업 완료!**';
+
+    } else if (
+      promotionResult.code ===
+      'ROLE_UPDATE_FAILED'
+    ) {
+      console.error(
+        `❌ 자동등업 역할 변경 실패: ${target.id}`,
+        promotionResult.error
+      );
+
+      promotionMessage =
+        '\n\n⚠️ 포인트는 지급됐지만 자동등업 역할 변경에 실패했습니다. 봇 역할 순서를 확인해주세요.';
+    }
+
+
     await interaction.reply({
       content:
         `✅ <@${target.id}>님에게 **+${amount}P** 지급 완료!\n` +
         `📝 사유: **${reasonLabel}**\n` +
-        `💰 현재 포인트: **${result.balanceAfter}P**`,
+        `💰 현재 포인트: **${result.balanceAfter}P**` +
+        promotionMessage,
 
       allowedMentions: {
         parse: [],
@@ -340,5 +380,26 @@ module.exports = {
 
       ephemeral: true,
     });
+
+
+    /*
+     * 실제 승급 성공 시
+     * 채널에도 축하 메시지를 남깁니다.
+     */
+    if (
+      promotionResult.code ===
+      'PROMOTED'
+    ) {
+      await interaction.channel.send({
+        content:
+          `🎉 <@${target.id}>님이 **10P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
+          '희희낙락 정식 멤버가 되신 걸 축하드립니다 💛',
+
+        allowedMentions: {
+          users:
+            [target.id],
+        },
+      });
+    }
   },
 };

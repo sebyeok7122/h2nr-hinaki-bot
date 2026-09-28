@@ -2,6 +2,11 @@ const {
   db
 } = require('../database/db');
 
+const {
+  ROLE_IDS,
+  RECRUIT_CONFIG
+} = require('../config/constants');
+
 
 const ensureUser = db.prepare(`
   INSERT INTO users (
@@ -77,6 +82,45 @@ const selectRecentTransactions =
   `);
 
 
+/*
+ * 신입 → 멤버 승급 기록 확인
+ */
+const selectPromotion =
+  db.prepare(`
+    SELECT *
+    FROM user_promotions
+    WHERE
+      guild_id = ?
+      AND user_id = ?
+      AND promotion_type = 'NEWBIE_TO_MEMBER'
+  `);
+
+
+/*
+ * 한 번 승급한 사람은
+ * 다시 중복 기록되지 않습니다.
+ */
+const insertPromotion =
+  db.prepare(`
+    INSERT OR IGNORE INTO user_promotions (
+      guild_id,
+      user_id,
+      promotion_type,
+      from_role_id,
+      to_role_id,
+      threshold_points
+    )
+    VALUES (
+      ?,
+      ?,
+      'NEWBIE_TO_MEMBER',
+      ?,
+      ?,
+      ?
+    )
+  `);
+
+
 const changePointsTransaction =
   db.transaction((data) => {
     ensureUser.run(
@@ -109,6 +153,7 @@ const changePointsTransaction =
           'INSUFFICIENT_POINTS',
 
         balanceBefore,
+
         balanceAfter:
           balanceBefore,
 
@@ -280,6 +325,7 @@ function deductPoints({
   return changePoints({
     guildId,
     userId,
+
     amount:
       -amount,
 
@@ -315,10 +361,167 @@ function getRecentPointTransactions(
 }
 
 
+/*
+ * 10P 이상이 된 신입을
+ * 멤버로 자동 승급합니다.
+ *
+ * 포인트가 나중에 줄어들더라도
+ * 강등시키지 않습니다.
+ */
+async function promoteNewbieIfEligible(
+  guild,
+  userId
+) {
+  const balance =
+    getPointBalance(
+      guild.id,
+      userId
+    );
+
+
+  if (
+    balance <
+    RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS
+  ) {
+    return {
+      code:
+        'NOT_ELIGIBLE',
+
+      balance,
+    };
+  }
+
+
+  /*
+   * 과거에 이미 자동승급이 완료된 사람
+   */
+  const existingPromotion =
+    selectPromotion.get(
+      guild.id,
+      userId
+    );
+
+
+  if (
+    existingPromotion
+  ) {
+    return {
+      code:
+        'ALREADY_PROMOTED',
+
+      balance,
+    };
+  }
+
+
+  let member;
+
+
+  try {
+    member =
+      guild.members.cache.get(
+        userId
+      ) ||
+      await guild.members.fetch(
+        userId
+      );
+
+  } catch (error) {
+    return {
+      code:
+        'MEMBER_NOT_FOUND',
+
+      balance,
+      error,
+    };
+  }
+
+
+  /*
+   * 현재 신입 역할을 가진 사람만
+   * 자동등업 대상입니다.
+   */
+  if (
+    !member.roles.cache.has(
+      ROLE_IDS.NEWBIE
+    )
+  ) {
+    return {
+      code:
+        'NOT_NEWBIE',
+
+      balance,
+    };
+  }
+
+
+  try {
+    /*
+     * 혹시 역할 처리 중 문제가 생겨도
+     * 멤버 권한이 먼저 확보되도록
+     * 멤버 역할부터 지급합니다.
+     */
+    if (
+      !member.roles.cache.has(
+        ROLE_IDS.MEMBER
+      )
+    ) {
+      await member.roles.add(
+        ROLE_IDS.MEMBER,
+        '희낙이 포인트 10P 자동등업'
+      );
+    }
+
+
+    /*
+     * 멤버 역할 지급 성공 후
+     * 신입 역할을 제거합니다.
+     */
+    await member.roles.remove(
+      ROLE_IDS.NEWBIE,
+      '희낙이 포인트 10P 자동등업'
+    );
+
+  } catch (error) {
+    return {
+      code:
+        'ROLE_UPDATE_FAILED',
+
+      balance,
+      error,
+    };
+  }
+
+
+  insertPromotion.run(
+    guild.id,
+    userId,
+    ROLE_IDS.NEWBIE,
+    ROLE_IDS.MEMBER,
+    RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS
+  );
+
+
+  return {
+    code:
+      'PROMOTED',
+
+    balance,
+
+    threshold:
+      RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS,
+  };
+}
+
+
 module.exports = {
   getPointBalance,
+
   changePoints,
   addPoints,
   deductPoints,
+
   getRecentPointTransactions,
+
+  promoteNewbieIfEligible,
 };
