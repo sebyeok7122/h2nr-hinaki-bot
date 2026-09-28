@@ -421,14 +421,15 @@ async function handleShopInteraction(
     }
 
 
-    const purchaseLines = [
-      '✅ **구매해주셔서 감사합니다!**',
-      '',
-      `🛍️ 상품: **${result.product.name}**`,
-      `💸 **${result.price}P 차감 완료**`,
-      `💰 남은 포인트: **${result.balanceAfter}P**`,
-      `🧾 주문번호: \`${result.orderCode}\``,
-    ];
+const purchaseLines = [
+  '✅ **구매해주셔서 감사합니다!**',
+  '',
+  `👤 구매자: <@${interaction.user.id}>`,
+  `🛍️ 상품: **${result.product.name}**`,
+  `💸 **${result.price}P 차감 완료**`,
+  `💰 남은 포인트: **${result.balanceAfter}P**`,
+  `🧾 주문번호: \`${result.orderCode}\``,
+];
 
 
     if (
