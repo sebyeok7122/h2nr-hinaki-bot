@@ -51,9 +51,11 @@ function getTargetChannelId(
       party.voiceKind
     ];
 
+
   if (!channelGroup) {
     return null;
   }
+
 
   return (
     channelGroup[
@@ -68,10 +70,6 @@ function areAllPartyMembersInTargetChannel(
   party,
   targetChannelId
 ) {
-  /*
-   * FULL + 실제 참가자 수가 정원과
-   * 정확히 같아야 합니다.
-   */
   if (
     !party.isActuallyFull ||
     party.memberIds.length !==
@@ -81,13 +79,6 @@ function areAllPartyMembersInTargetChannel(
   }
 
 
-  /*
-   * 구인 참가자 전원이
-   * 지정 음성방에 있어야 합니다.
-   *
-   * 관계없는 다른 사람이 방에 있는 것은
-   * 상관없습니다.
-   */
   return party.memberIds.every(
     (userId) => {
       const voiceState =
@@ -95,12 +86,63 @@ function areAllPartyMembersInTargetChannel(
           userId
         );
 
+
       return (
         voiceState?.channelId ===
         targetChannelId
       );
     }
   );
+}
+
+
+async function getDisplayName(
+  guild,
+  userId
+) {
+  try {
+    const member =
+      guild.members.cache.get(
+        userId
+      ) ||
+      await guild.members.fetch(
+        userId
+      );
+
+
+    return (
+      member.nickname ||
+      member.displayName ||
+      member.user.username ||
+      userId
+    );
+
+  } catch (error) {
+    return userId;
+  }
+}
+
+
+async function getPartyMemberNames(
+  guild,
+  party
+) {
+  const names = [];
+
+
+  for (
+    const userId of party.memberIds
+  ) {
+    names.push(
+      await getDisplayName(
+        guild,
+        userId
+      )
+    );
+  }
+
+
+  return names;
 }
 
 
@@ -126,7 +168,7 @@ async function getHelperUserIds(
 
       /*
        * 완료 시점에도 [신입] 역할을
-       * 가진 사람은 +3P 대상에서 제외합니다.
+       * 가지고 있는 사람은 +3P 대상에서 제외합니다.
        */
       if (
         member.roles.cache.has(
@@ -246,8 +288,8 @@ async function evaluateNewbieParty(
 
   /*
    * FULL이 아니거나
-   * 참가자 전원이 지정방에 없으면
-   * 즉시 카운트를 정지합니다.
+   * 참가자 전원이 지정 음성방에 없다면
+   * 활동 카운트를 즉시 정지합니다.
    */
   if (!allPresent) {
     const result =
@@ -283,8 +325,8 @@ async function evaluateNewbieParty(
 
 
   /*
-   * 전원이 모였으면
-   * 아직 카운트 중이 아닐 때 시작/재개합니다.
+   * 전원이 지정방에 모였으면
+   * 카운트를 시작하거나 재개합니다.
    */
   const startResult =
     startNewbiePartyTimer(
@@ -301,17 +343,28 @@ async function evaluateNewbieParty(
         ?.accumulatedSeconds > 0;
 
 
-    console.log(
+    const memberNames =
+      await getPartyMemberNames(
+        guild,
+        party
+      );
+
+
+    if (
       wasResume
-        ? `▶️ [신입활동 재개] 구인 #${party.recruitmentId} · ${party.voiceKind} ${party.voiceRoomNumber}번방 · 누적 ${formatSeconds(startResult.progress.accumulatedSeconds)}`
-        : `🌱 [신입활동 시작] 구인 #${party.recruitmentId} · ${party.voiceKind} ${party.voiceRoomNumber}번방`
-    );
+    ) {
+      console.log(
+        `▶️ [신입활동 재개] 구인 #${party.recruitmentId} · ${party.voiceKind} ${party.voiceRoomNumber}번방 · 누적 ${formatSeconds(startResult.progress.accumulatedSeconds)} · 참가자 ${memberNames.join(' / ')}`
+      );
+
+    } else {
+      console.log(
+        `🌱 [신입활동 시작] 구인 #${party.recruitmentId} · ${party.voiceKind} ${party.voiceRoomNumber}번방 · 참가자 ${memberNames.join(' / ')}`
+      );
+    }
   }
 
 
-  /*
-   * 현재 시점의 누적시간을 다시 계산합니다.
-   */
   const progress =
     getNewbiePartyProgress(
       party.recruitmentId
@@ -328,10 +381,9 @@ async function evaluateNewbieParty(
 
 
   /*
-   * 목표시간 달성!
-   *
-   * 현재 [신입] 역할을 가진 사람은 제외하고
-   * 기존 멤버만 +3P 대상으로 정합니다.
+   * 60분 목표 달성.
+   * 현재 [신입] 역할이 없는 기존 멤버에게만
+   * +3P를 지급합니다.
    */
   const helperUserIds =
     await getHelperUserIds(
@@ -348,10 +400,6 @@ async function evaluateNewbieParty(
     );
 
 
-  /*
-   * 이미 다른 검사에서 완료했다면
-   * 아무것도 하지 않습니다.
-   */
   if (
     completeResult.code !==
     'COMPLETED'
@@ -360,8 +408,34 @@ async function evaluateNewbieParty(
   }
 
 
+  const awardedNames = [];
+
+
+  for (
+    const userId of
+      completeResult.awardedUserIds
+  ) {
+    const name =
+      await getDisplayName(
+        guild,
+        userId
+      );
+
+
+    awardedNames.push(
+      `${name} +${completeResult.pointsEach}P`
+    );
+  }
+
+
+  const pointLog =
+    awardedNames.length > 0
+      ? awardedNames.join(' / ')
+      : '지급 대상 없음';
+
+
   console.log(
-    `💚 [신입활동 완료] 구인 #${party.recruitmentId} · ${formatSeconds(completeResult.progress?.totalSeconds)} · ${completeResult.awardedUserIds.length}명 지급`
+    `💚 [신입활동 완료] 구인 #${party.recruitmentId} · ${formatSeconds(completeResult.progress?.totalSeconds)} · 포인트 지급: ${pointLog}`
   );
 
 
@@ -377,11 +451,6 @@ async function evaluateNewbieParty(
 async function checkAllNewbieParties(
   client
 ) {
-  /*
-   * 5초마다 검사할 예정이라
-   * 이전 검사가 아직 끝나지 않았다면
-   * 중복 실행하지 않습니다.
-   */
   if (
     checkingAllParties
   ) {
@@ -446,7 +515,8 @@ async function handleVoiceStateUpdate(
 
 
   /*
-   * 음소거/카메라 변경 등은 무시합니다.
+   * 음소거 / 카메라 / 화면공유 변경 등
+   * 실제 음성방 이동이 아닌 이벤트는 무시합니다.
    */
   if (
     oldChannelId ===
@@ -479,38 +549,13 @@ async function handleVoiceStateUpdate(
   }
 
 
-const userLabel =
-  `${member.nickname || member.displayName} (${member.id})`;
-
-
-  if (
-    !oldChannelId &&
-    newChannelId
-  ) {
-    console.log(
-      `🎧 [음성 입장] ${userLabel} → ${newState.channel?.name || newChannelId}`
-    );
-
-  } else if (
-    oldChannelId &&
-    !newChannelId
-  ) {
-    console.log(
-      `🚪 [음성 퇴장] ${userLabel} ← ${oldState.channel?.name || oldChannelId}`
-    );
-
-  } else {
-    console.log(
-      `🔄 [음성 이동] ${userLabel} : ` +
-      `${oldState.channel?.name || oldChannelId} → ` +
-      `${newState.channel?.name || newChannelId}`
-    );
-  }
-
-
   /*
-   * 이 사람이 현재 참가 중인
-   * 신입파티만 즉시 재검사합니다.
+   * 중요:
+   * 서버 전체 음성 입장/퇴장/이동 로그는
+   * 더 이상 출력하지 않습니다.
+   *
+   * 현재 진행 중인 신입파티에 참가 중인
+   * 멤버의 변화만 활동 판정에 사용합니다.
    */
   const parties =
     getActiveNewbiePartiesForMember(
@@ -519,6 +564,21 @@ const userLabel =
     );
 
 
+  /*
+   * 신입파티와 아무 관련 없는 멤버라면
+   * 여기서 끝냅니다.
+   */
+  if (
+    parties.length === 0
+  ) {
+    return;
+  }
+
+
+  /*
+   * 해당 멤버가 참가 중인 신입파티만
+   * 즉시 재검사합니다.
+   */
   for (
     const party of parties
   ) {
