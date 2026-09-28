@@ -4,9 +4,11 @@
   "description": "희희낙락 공식 Discord 앱 희낙이봇",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "discord.js": "^14.21.0"
   }
 }
