@@ -479,8 +479,8 @@ async function handleVoiceStateUpdate(
   }
 
 
-  const userLabel =
-    `${member.user.username} (${member.id})`;
+const userLabel =
+  `${member.nickname || member.displayName} (${member.id})`;
 
 
   if (
