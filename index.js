@@ -5,6 +5,26 @@ const {
   ActivityType
 } = require('discord.js');
 
+
+/*
+ * ★ 가장 먼저 DB를 초기화합니다.
+ *
+ * Railway처럼 완전히 새 DB에서 시작할 때도
+ * 다른 서비스들이 SQL을 준비하기 전에
+ * 모든 테이블이 먼저 만들어져 있어야 합니다.
+ */
+const {
+  initDatabase
+} = require('./src/database/db');
+
+
+initDatabase();
+
+
+/*
+ * DB 초기화가 끝난 뒤에
+ * DB를 사용하는 모듈들을 불러옵니다.
+ */
 const {
   loadCommands
 } = require('./src/loaders/commandLoader');
@@ -17,10 +37,6 @@ const {
   handleVoiceStateUpdate,
   checkAllNewbieParties
 } = require('./src/handlers/voiceStateHandler');
-
-const {
-  initDatabase
-} = require('./src/database/db');
 
 const {
   DISCORD_IDS
@@ -40,9 +56,6 @@ if (!token) {
     'DISCORD_BOT_TOKEN 환경변수가 설정되어 있지 않습니다.'
   );
 }
-
-
-initDatabase();
 
 
 const client =
@@ -72,9 +85,6 @@ const NEWBIE_ACTIVITY_CHECK_INTERVAL =
 /*
  * 뉴비메이트 월간 선정 여부는
  * 1시간마다 확인합니다.
- *
- * 이미 처리한 달이면
- * DB 기록을 보고 아무 작업도 하지 않습니다.
  */
 const NEWBIE_MATE_CHECK_INTERVAL =
   60 * 60 * 1000;
@@ -104,10 +114,6 @@ async function checkMonthlyNewbieMate(
       );
 
 
-    /*
-     * 이미 처리된 달은
-     * 한 시간마다 로그를 남기지 않습니다.
-     */
     if (
       result.code ===
       'ALREADY_PROCESSED'
@@ -183,28 +189,16 @@ client.once(
     });
 
 
-    /*
-     * 봇 실행 직후 신입파티 검사
-     */
     void checkAllNewbieParties(
       client
     );
 
 
-    /*
-     * 봇 실행 직후 뉴비메이트도 검사합니다.
-     *
-     * 그래서 매월 1일에 봇이 꺼져 있었어도
-     * 다음 실행 시 지난달 기록을 처리합니다.
-     */
     void checkMonthlyNewbieMate(
       client
     );
 
 
-    /*
-     * 신입파티 5초마다 검사
-     */
     setInterval(
       () => {
         void checkAllNewbieParties(
@@ -215,9 +209,6 @@ client.once(
     );
 
 
-    /*
-     * 뉴비메이트는 1시간마다 검사
-     */
     setInterval(
       () => {
         void checkMonthlyNewbieMate(
