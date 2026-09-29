@@ -108,12 +108,15 @@ function getRecruitmentTitle(
       'OTHER_GAME' &&
     recruitment.game_name
   ) {
-    if (isFull) {
+    if (
+      isFull
+    ) {
       return (
         '✅ 종겜 모집 완료! · ' +
         recruitment.game_name
       );
     }
+
 
     return (
       '🎮 종겜종류 : ' +
@@ -151,6 +154,37 @@ function getVoiceRoomLabel(
 }
 
 
+/*
+ * 작성자가 입력한 자유 설명을
+ * 구인글 하단에 표시합니다.
+ *
+ * 기존 DB의 옛 구인처럼 설명이 없으면
+ * 아무것도 추가하지 않습니다.
+ */
+function addPartyDescription(
+  lines,
+  recruitment
+) {
+  const description =
+    recruitment.description
+      ?.trim();
+
+
+  if (
+    !description
+  ) {
+    return;
+  }
+
+
+  lines.push(
+    '',
+    '📝 **파티 설명**',
+    description
+  );
+}
+
+
 function buildNewbieDescription(
   snapshot
 ) {
@@ -164,13 +198,26 @@ function buildNewbieDescription(
   } = snapshot;
 
 
-  if (isFull) {
-    return [
+  if (
+    isFull
+  ) {
+    const description = [
       `🔊 **${getVoiceRoomLabel(recruitment)}**`,
       `👥 **${memberCount} / ${recruitment.capacity} FULL**`,
       `🕘 시작 예정 **${recruitment.start_time}**`,
       `👤 ${getMentionList(memberIds)}`,
-    ].join('\n');
+    ];
+
+
+    addPartyDescription(
+      description,
+      recruitment
+    );
+
+
+    return description.join(
+      '\n'
+    );
   }
 
 
@@ -182,15 +229,30 @@ function buildNewbieDescription(
       : '현재 신입 없음';
 
 
-  return [
+  const description = [
     `🔊 **${getVoiceRoomLabel(recruitment)}**`,
     `👥 현재 인원 **${memberCount} / ${recruitment.capacity}**`,
     `🕘 시작 예정 **${recruitment.start_time}**`,
     `🌱 신입 ${newbieMentions}`,
     `➕ **${remaining}명 모집 중**`,
+  ];
+
+
+  addPartyDescription(
+    description,
+    recruitment
+  );
+
+
+  description.push(
     '',
-    '처음 같이 하는 분들도 부담 없이 참여해주세요!',
-  ].join('\n');
+    '처음 같이 하는 분들도 부담 없이 참여해주세요!'
+  );
+
+
+  return description.join(
+    '\n'
+  );
 }
 
 
@@ -214,6 +276,12 @@ function buildNormalDescription(
   ];
 
 
+  addPartyDescription(
+    description,
+    recruitment
+  );
+
+
   if (
     recruitment.type ===
     'MERCENARY'
@@ -233,7 +301,9 @@ function buildNormalDescription(
   );
 
 
-  return description.join('\n');
+  return description.join(
+    '\n'
+  );
 }
 
 
@@ -280,8 +350,12 @@ function buildRecruitmentMessage(
           .setCustomId(
             `recruit_join:${recruitment.id}`
           )
-          .setLabel('참여')
-          .setEmoji('✅')
+          .setLabel(
+            '참여'
+          )
+          .setEmoji(
+            '✅'
+          )
           .setStyle(
             ButtonStyle.Success
           )
@@ -293,8 +367,12 @@ function buildRecruitmentMessage(
           .setCustomId(
             `recruit_cancel:${recruitment.id}`
           )
-          .setLabel('취소')
-          .setEmoji('❎')
+          .setLabel(
+            '취소'
+          )
+          .setEmoji(
+            '❎'
+          )
           .setStyle(
             ButtonStyle.Danger
           ),
@@ -306,7 +384,9 @@ function buildRecruitmentMessage(
           .setLabel(
             '자리나면 알림'
           )
-          .setEmoji('🔔')
+          .setEmoji(
+            '🔔'
+          )
           .setStyle(
             ButtonStyle.Secondary
           )

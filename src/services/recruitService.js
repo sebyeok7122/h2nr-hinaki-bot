@@ -80,6 +80,7 @@ const insertRecruitment = db.prepare(`
     voice_kind,
     voice_room_number,
     game_name,
+    description,
     capacity,
     start_time,
     status
@@ -92,6 +93,7 @@ const insertRecruitment = db.prepare(`
     @voiceKind,
     @voiceRoomNumber,
     @gameName,
+    @description,
     @capacity,
     @startTime,
     @status
@@ -320,6 +322,9 @@ const createRecruitmentTransaction =
 
         gameName:
           data.gameName || null,
+
+        description:
+          data.description || null,
 
         capacity:
           data.capacity,

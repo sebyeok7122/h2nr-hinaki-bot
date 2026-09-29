@@ -103,6 +103,8 @@ function initDatabase() {
 
       game_name TEXT,
 
+      description TEXT,
+
       capacity INTEGER NOT NULL
         CHECK(capacity >= 2),
 
@@ -412,6 +414,41 @@ function initDatabase() {
       created_at
     );
   `);
+
+
+  /*
+   * 기존에 이미 운영 중인 DB에는
+   * recruitments.description 컬럼이 없을 수 있습니다.
+   *
+   * 기존 데이터는 그대로 유지하면서
+   * 설명 컬럼만 안전하게 추가합니다.
+   */
+  const recruitmentColumns =
+    db.prepare(
+      'PRAGMA table_info(recruitments)'
+    ).all();
+
+
+  const hasDescriptionColumn =
+    recruitmentColumns.some(
+      (column) =>
+        column.name ===
+        'description'
+    );
+
+
+  if (
+    !hasDescriptionColumn
+  ) {
+    db.exec(`
+      ALTER TABLE recruitments
+      ADD COLUMN description TEXT
+    `);
+
+    console.log(
+      '📝 구인 설명 컬럼 추가 완료'
+    );
+  }
 
 
   /*
