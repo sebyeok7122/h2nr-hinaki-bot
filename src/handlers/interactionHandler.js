@@ -14,6 +14,10 @@ const {
   handleMyWatchersInteraction
 } = require('../commands/myWatchers');
 
+const {
+  handleMyPartyInteraction
+} = require('../commands/myParty');
+
 
 async function handleInteraction(
   client,
@@ -95,6 +99,27 @@ async function handleInteraction(
 
     if (
       myWatchersHandled
+    ) {
+      return;
+    }
+
+
+    /*
+     * /내파티찾기
+     *
+     * 파티 선택
+     * 파티글 이동
+     * 정상 파티 종료
+     */
+    const myPartyHandled =
+      await handleMyPartyInteraction(
+        client,
+        interaction
+      );
+
+
+    if (
+      myPartyHandled
     ) {
       return;
     }

@@ -8,11 +8,7 @@ const {
 
 
 /*
- * ★ 가장 먼저 DB를 초기화합니다.
- *
- * Railway처럼 완전히 새 DB에서 시작할 때도
- * 다른 서비스들이 SQL을 준비하기 전에
- * 모든 테이블이 먼저 만들어져 있어야 합니다.
+ * ★ 가장 먼저 DB 초기화
  */
 const {
   initDatabase
@@ -23,8 +19,8 @@ initDatabase();
 
 
 /*
- * DB 초기화가 끝난 뒤에
- * DB를 사용하는 모듈들을 불러옵니다.
+ * DB 초기화 후
+ * 필요한 모듈 로드
  */
 const {
   loadCommands
@@ -46,6 +42,10 @@ const {
 const {
   handleRecruitmentMessageDelete
 } = require('./src/handlers/recruitDeleteHandler');
+
+const {
+  processExpiredRecruitments
+} = require('./src/services/recruitAutoEndService');
 
 const {
   DISCORD_IDS
@@ -72,17 +72,9 @@ const client =
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildVoiceStates,
-
-      /*
-       * 구인 메시지 삭제 감지용
-       */
       GatewayIntentBits.GuildMessages
     ],
 
-    /*
-     * 봇이 메시지를 캐시에 가지고 있지 않아도
-     * 삭제 이벤트의 ID를 받을 수 있도록 합니다.
-     */
     partials: [
       Partials.Message,
       Partials.Channel
@@ -98,27 +90,35 @@ loadCommands(client);
 
 
 /*
- * 신입파티 활동조건은
- * 5초마다 자동으로 다시 확인합니다.
+ * 신입파티 활동조건 확인
+ * 5초마다
  */
 const NEWBIE_ACTIVITY_CHECK_INTERVAL =
   5000;
 
 
 /*
- * 자리알림 대기열도
- * 5초마다 확인합니다.
- *
- * 3분 우선권이 끝난 사람을 정리하고
- * 자동으로 다음 순번에게 넘깁니다.
+ * 자리알림 대기열 확인
+ * 5초마다
  */
 const RECRUIT_QUEUE_CHECK_INTERVAL =
   5000;
 
 
 /*
- * 뉴비메이트 월간 선정 여부는
- * 1시간마다 확인합니다.
+ * 오래된 파티 자동 종료 확인
+ * 1분마다
+ *
+ * 시작 예정 시간 + 6시간이 지난
+ * OPEN / FULL 파티를 ENDED 처리합니다.
+ */
+const RECRUIT_AUTO_END_CHECK_INTERVAL =
+  60 * 1000;
+
+
+/*
+ * 뉴비메이트 월간 선정 확인
+ * 1시간마다
  */
 const NEWBIE_MATE_CHECK_INTERVAL =
   60 * 60 * 1000;
@@ -164,6 +164,7 @@ async function checkMonthlyNewbieMate(
         `🌱 [뉴비메이트 자동확인] ${result.awardMonth} · ${result.winners.length}명 선정`
       );
 
+
       return;
     }
 
@@ -175,6 +176,7 @@ async function checkMonthlyNewbieMate(
       console.log(
         `🌱 [뉴비메이트 자동확인] ${result.awardMonth} · 선정 대상 없음`
       );
+
 
       return;
     }
@@ -224,8 +226,8 @@ client.once(
 
 
     /*
-     * 봇 재시작 직후에도
-     * 신입파티 상태를 바로 확인합니다.
+     * 봇 재시작 직후
+     * 신입파티 상태 확인
      */
     void checkAllNewbieParties(
       client
@@ -234,19 +236,39 @@ client.once(
 
     /*
      * 봇이 꺼져있는 동안
-     * 자리알림 우선권 시간이 지났을 수도 있으므로
-     * 시작과 동시에 대기열도 한 번 확인합니다.
+     * 자리알림 우선권이 지났을 수 있으므로
+     * 즉시 한 번 확인
      */
     void processAllRecruitmentQueues(
       client
     );
 
 
+    /*
+     * ★ 봇 시작 즉시
+     * 오래된 파티를 한 번 정리합니다.
+     *
+     * 지금 /내파티찾기에 쌓여 있는
+     * 예전 테스트 파티들도
+     * 시작 예정 + 6시간이 지났다면
+     * 자동 ENDED 처리됩니다.
+     */
+    void processExpiredRecruitments(
+      client
+    );
+
+
+    /*
+     * 뉴비메이트 확인
+     */
     void checkMonthlyNewbieMate(
       client
     );
 
 
+    /*
+     * 신입파티 활동 확인
+     */
     setInterval(
       () => {
         void checkAllNewbieParties(
@@ -258,8 +280,8 @@ client.once(
 
 
     /*
-     * 3분 우선권 만료 및
-     * 다음 대기순번 자동 처리
+     * 자리알림
+     * 3분 우선권 / 다음 순번 자동 처리
      */
     setInterval(
       () => {
@@ -271,6 +293,23 @@ client.once(
     );
 
 
+    /*
+     * ★ 시작 예정 + 6시간이 지난
+     * 파티 자동 종료
+     */
+    setInterval(
+      () => {
+        void processExpiredRecruitments(
+          client
+        );
+      },
+      RECRUIT_AUTO_END_CHECK_INTERVAL
+    );
+
+
+    /*
+     * 뉴비메이트 월간 확인
+     */
     setInterval(
       () => {
         void checkMonthlyNewbieMate(
@@ -315,10 +354,8 @@ client.on(
 
 
 /*
- * 희낙이가 만든 구인글이 삭제됐는지 감지
- *
- * 일반 채팅 삭제는 무시하고
- * DB에 등록된 구인 메시지만 처리합니다.
+ * 희낙이가 만든 구인글
+ * 직접 삭제 감지
  */
 client.on(
   'messageDelete',
