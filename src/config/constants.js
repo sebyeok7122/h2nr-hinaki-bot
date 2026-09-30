@@ -25,6 +25,19 @@ const ROLE_IDS = {
 };
 
 
+/*
+ * 운영 로그 채널
+ */
+const LOG_CHANNEL_IDS = {
+  /*
+   * 구인글이 직접 삭제됐을 때
+   * 운영 기록을 남기는 채널
+   */
+  RECRUIT_DELETE:
+    '1554964776566788237',
+};
+
+
 const VOICE_CHANNEL_IDS = {
   SQUAD: {
     1: '1493312805875749026',
@@ -98,6 +111,7 @@ const RECRUIT_CONFIG = {
 module.exports = {
   DISCORD_IDS,
   ROLE_IDS,
+  LOG_CHANNEL_IDS,
   VOICE_CHANNEL_IDS,
   RECRUIT_CONFIG,
 };
