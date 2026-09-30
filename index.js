@@ -2,7 +2,8 @@ const {
   Client,
   Collection,
   GatewayIntentBits,
-  ActivityType
+  ActivityType,
+  Partials
 } = require('discord.js');
 
 
@@ -43,6 +44,10 @@ const {
 } = require('./src/handlers/voiceStateHandler');
 
 const {
+  handleRecruitmentMessageDelete
+} = require('./src/handlers/recruitDeleteHandler');
+
+const {
   DISCORD_IDS
 } = require('./src/config/constants');
 
@@ -66,7 +71,21 @@ const client =
   new Client({
     intents: [
       GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildVoiceStates
+      GatewayIntentBits.GuildVoiceStates,
+
+      /*
+       * 구인 메시지 삭제 감지용
+       */
+      GatewayIntentBits.GuildMessages
+    ],
+
+    /*
+     * 봇이 메시지를 캐시에 가지고 있지 않아도
+     * 삭제 이벤트의 ID를 받을 수 있도록 합니다.
+     */
+    partials: [
+      Partials.Message,
+      Partials.Channel
     ]
   });
 
@@ -264,6 +283,9 @@ client.once(
 );
 
 
+/*
+ * 슬래시 명령어 / 버튼 / 선택메뉴
+ */
 client.on(
   'interactionCreate',
   async (interaction) => {
@@ -275,6 +297,9 @@ client.on(
 );
 
 
+/*
+ * 신입파티 음성 활동 감지
+ */
 client.on(
   'voiceStateUpdate',
   async (
@@ -284,6 +309,23 @@ client.on(
     await handleVoiceStateUpdate(
       oldState,
       newState
+    );
+  }
+);
+
+
+/*
+ * 희낙이가 만든 구인글이 삭제됐는지 감지
+ *
+ * 일반 채팅 삭제는 무시하고
+ * DB에 등록된 구인 메시지만 처리합니다.
+ */
+client.on(
+  'messageDelete',
+  async (message) => {
+    await handleRecruitmentMessageDelete(
+      client,
+      message
     );
   }
 );

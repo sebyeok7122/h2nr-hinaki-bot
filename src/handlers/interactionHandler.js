@@ -10,6 +10,10 @@ const {
   handleShopInteraction
 } = require('../commands/shop');
 
+const {
+  handleMyWatchersInteraction
+} = require('../commands/myWatchers');
+
 
 async function handleInteraction(
   client,
@@ -62,7 +66,7 @@ async function handleInteraction(
 
 
     /*
-     * 구인 참여 / 취소 / 알림 버튼
+     * 구인 참여 / 취소 / 자리알림 버튼
      */
     const recruitButtonHandled =
       await handleRecruitButtonInteraction(
@@ -73,6 +77,24 @@ async function handleInteraction(
 
     if (
       recruitButtonHandled
+    ) {
+      return;
+    }
+
+
+    /*
+     * /내자리알림
+     * 자리알림 취소 선택 메뉴
+     */
+    const myWatchersHandled =
+      await handleMyWatchersInteraction(
+        client,
+        interaction
+      );
+
+
+    if (
+      myWatchersHandled
     ) {
       return;
     }
