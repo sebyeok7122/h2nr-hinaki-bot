@@ -88,6 +88,23 @@ const VOICE_KIND_LABELS = {
 };
 
 
+/*
+ * 대기순번 숫자
+ */
+const QUEUE_NUMBER_EMOJIS = [
+  '1️⃣',
+  '2️⃣',
+  '3️⃣',
+  '4️⃣',
+  '5️⃣',
+  '6️⃣',
+  '7️⃣',
+  '8️⃣',
+  '9️⃣',
+  '🔟',
+];
+
+
 function getMentionList(
   memberIds
 ) {
@@ -155,11 +172,7 @@ function getVoiceRoomLabel(
 
 
 /*
- * 작성자가 입력한 자유 설명을
- * 구인글 하단에 표시합니다.
- *
- * 기존 DB의 옛 구인처럼 설명이 없으면
- * 아무것도 추가하지 않습니다.
+ * 작성자가 입력한 자유 설명
  */
 function addPartyDescription(
   lines,
@@ -185,6 +198,80 @@ function addPartyDescription(
 }
 
 
+/*
+ * 자리알림 대기순번 표시
+ *
+ * 실제 순번은 recruitService에서
+ * 알림을 누른 시간순으로 정렬해서 넘겨줍니다.
+ */
+function addWatcherQueue(
+  lines,
+  snapshot
+) {
+  const watcherQueue =
+    snapshot.watcherQueue || [];
+
+
+  if (
+    watcherQueue.length === 0
+  ) {
+    return;
+  }
+
+
+  lines.push(
+    '',
+    '🔔 **자리 대기**'
+  );
+
+
+  /*
+   * 구인글이 너무 길어지지 않도록
+   * 화면에는 최대 10명까지 표시합니다.
+   */
+  const visibleQueue =
+    watcherQueue.slice(
+      0,
+      10
+    );
+
+
+  for (
+    let index = 0;
+    index < visibleQueue.length;
+    index += 1
+  ) {
+    const watcher =
+      visibleQueue[index];
+
+
+    const number =
+      QUEUE_NUMBER_EMOJIS[index] ||
+      `${index + 1}.`;
+
+
+    const priorityText =
+      watcher.hasPriority
+        ? ' ⏳ **우선 참여 중**'
+        : '';
+
+
+    lines.push(
+      `${number} <@${watcher.userId}>${priorityText}`
+    );
+  }
+
+
+  if (
+    watcherQueue.length > 10
+  ) {
+    lines.push(
+      `… 외 ${watcherQueue.length - 10}명 대기 중`
+    );
+  }
+}
+
+
 function buildNewbieDescription(
   snapshot
 ) {
@@ -207,6 +294,12 @@ function buildNewbieDescription(
       `🕘 시작 예정 **${recruitment.start_time}**`,
       `👤 ${getMentionList(memberIds)}`,
     ];
+
+
+    addWatcherQueue(
+      description,
+      snapshot
+    );
 
 
     addPartyDescription(
@@ -236,6 +329,12 @@ function buildNewbieDescription(
     `🌱 신입 ${newbieMentions}`,
     `➕ **${remaining}명 모집 중**`,
   ];
+
+
+  addWatcherQueue(
+    description,
+    snapshot
+  );
 
 
   addPartyDescription(
@@ -274,6 +373,12 @@ function buildNormalDescription(
     `🕘 시작 예정 **${recruitment.start_time}**`,
     `👤 ${getMentionList(memberIds)}`,
   ];
+
+
+  addWatcherQueue(
+    description,
+    snapshot
+  );
 
 
   addPartyDescription(
