@@ -73,9 +73,6 @@ async function findDeletedByUserIdOnce(
     /*
      * 이번 삭제와 관계없는
      * 오래된 기록은 제외합니다.
-     *
-     * 감사로그가 약간 늦게 올라오는 경우를
-     * 고려해 15초 범위로 확인합니다.
      */
     if (
       age < 0 ||
@@ -104,7 +101,7 @@ async function findDeletedByUserIdOnce(
 
 
     /*
-     * Discord MESSAGE_DELETE 감사로그의 target은
+     * MESSAGE_DELETE 감사로그의 target은
      * 삭제된 메시지의 작성자입니다.
      *
      * 희낙이 구인글은 희낙이가 작성하므로
@@ -149,10 +146,7 @@ async function findDeletedByUserIdOnce(
 /*
  * 실제 삭제자 확인
  *
- * 메시지 삭제 이벤트가 먼저 오고
- * 감사로그가 몇백 ms ~ 몇 초 늦게
- * 등록되는 경우가 있으므로
- *
+ * 감사로그가 조금 늦게 생성될 수 있으므로
  * 최대 4번 재확인합니다.
  */
 async function findDeletedByUserId(
@@ -160,9 +154,6 @@ async function findDeletedByUserId(
   client,
   channelId
 ) {
-  /*
-   * 첫 시도 전에 약간 기다립니다.
-   */
   await sleep(
     800
   );
@@ -203,20 +194,9 @@ async function findDeletedByUserId(
         `⚠️ 구인 삭제자 감사로그 확인 실패 (${attempt}/${MAX_ATTEMPTS}):`,
         error.message
       );
-
-
-      /*
-       * 권한 자체가 없는 경우에도
-       * 삭제 기록은 계속 남겨야 하므로
-       * 예외를 밖으로 던지지 않습니다.
-       */
     }
 
 
-    /*
-     * 마지막 시도가 아니라면
-     * 조금 기다린 뒤 다시 확인
-     */
     if (
       attempt <
       MAX_ATTEMPTS
@@ -394,10 +374,6 @@ async function sendRecruitDeleteLog(
       embeds:
         [embed],
 
-      /*
-       * @표시는 하지만
-       * 실제 멘션 알림은 발생하지 않습니다.
-       */
       allowedMentions: {
         parse: [],
       },
@@ -456,12 +432,29 @@ async function handleRecruitmentMessageDelete(
 
 
     /*
-     * 이미 처리한 구인은
-     * 중복 기록하지 않습니다.
+     * ★ 핵심
+     *
+     * 현재 모집 중인 OPEN / FULL 구인글을
+     * 직접 삭제한 경우에만
+     * "임의 삭제" 기록으로 처리합니다.
+     *
+     * ENDED:
+     * /내파티찾기에서 정상 종료한 파티
+     *
+     * DELETED:
+     * 이미 임의 삭제로 기록된 파티
+     *
+     * 따라서 정상 종료 후
+     * 나중에 글을 정리해서 삭제하는 것은
+     * 경고 기록에 포함되지 않습니다.
      */
     if (
-      recruitment.status ===
-      'DELETED'
+      ![
+        'OPEN',
+        'FULL',
+      ].includes(
+        recruitment.status
+      )
     ) {
       return;
     }
