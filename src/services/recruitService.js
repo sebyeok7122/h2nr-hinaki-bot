@@ -1,19 +1,16 @@
-const {
-  db
-} = require('../database/db');
+const { db } = require('../database/db');
+
+const WAIT_PRIORITY_SECONDS = 180;
 
 
 /*
- * 신입파티에서 어떤 멤버가 신입인지
- * 재시작 후에도 기억하기 위한 보조 테이블입니다.
+ * 신입파티에서 어떤 멤버가 신입인지 저장합니다.
  */
 db.exec(`
   CREATE TABLE IF NOT EXISTS recruitment_newbies (
     recruitment_id INTEGER NOT NULL,
     user_id TEXT NOT NULL,
-
-    created_at TEXT NOT NULL
-      DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
 
     PRIMARY KEY (
       recruitment_id,
@@ -149,14 +146,13 @@ const deactivateMember = db.prepare(`
 `);
 
 
-const updateRecruitmentStatus =
-  db.prepare(`
-    UPDATE recruitments
-    SET
-      status = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `);
+const updateRecruitmentStatus = db.prepare(`
+  UPDATE recruitments
+  SET
+    status = ?,
+    updated_at = datetime('now')
+  WHERE id = ?
+`);
 
 
 const updateMessageId = db.prepare(`
@@ -168,22 +164,32 @@ const updateMessageId = db.prepare(`
 `);
 
 
-const deleteRecruitmentStatement =
-  db.prepare(`
-    DELETE FROM recruitments
-    WHERE id = ?
-  `);
+const deleteRecruitmentStatement = db.prepare(`
+  DELETE FROM recruitments
+  WHERE id = ?
+`);
 
 
-const selectActiveWatcher =
-  db.prepare(`
-    SELECT user_id
-    FROM recruitment_watchers
-    WHERE
-      recruitment_id = ?
-      AND user_id = ?
-      AND is_active = 1
-  `);
+/*
+ * ─────────────────────────────
+ * 자리알림 대기열
+ * ─────────────────────────────
+ */
+
+
+const selectActiveWatcher = db.prepare(`
+  SELECT
+    user_id,
+    created_at,
+    notified_at
+
+  FROM recruitment_watchers
+
+  WHERE
+    recruitment_id = ?
+    AND user_id = ?
+    AND is_active = 1
+`);
 
 
 const upsertWatcher = db.prepare(`
@@ -198,7 +204,10 @@ const upsertWatcher = db.prepare(`
     ?,
     ?,
     1,
-    datetime('now'),
+    strftime(
+      '%Y-%m-%d %H:%M:%f',
+      'now'
+    ),
     NULL
   )
 
@@ -208,31 +217,275 @@ const upsertWatcher = db.prepare(`
   )
   DO UPDATE SET
     is_active = 1,
-    created_at = datetime('now'),
+    created_at = strftime(
+      '%Y-%m-%d %H:%M:%f',
+      'now'
+    ),
     notified_at = NULL
 `);
 
 
-const selectActiveWatchers =
-  db.prepare(`
-    SELECT user_id
-    FROM recruitment_watchers
-    WHERE
-      recruitment_id = ?
-      AND is_active = 1
-  `);
+const selectActiveWatchers = db.prepare(`
+  SELECT
+    user_id,
+    created_at,
+    notified_at,
+
+    CASE
+      WHEN
+        notified_at IS NOT NULL
+        AND julianday(notified_at) >
+          julianday(
+            'now',
+            '-3 minutes'
+          )
+      THEN 1
+      ELSE 0
+    END AS has_priority
+
+  FROM recruitment_watchers
+
+  WHERE
+    recruitment_id = ?
+    AND is_active = 1
+
+  ORDER BY
+    julianday(created_at) ASC,
+    rowid ASC
+`);
 
 
-const deactivateWatcher =
-  db.prepare(`
-    UPDATE recruitment_watchers
-    SET
-      is_active = 0,
-      notified_at = datetime('now')
-    WHERE
-      recruitment_id = ?
-      AND user_id = ?
-  `);
+const selectExpiredWatchersForRecruitment = db.prepare(`
+  SELECT
+    user_id
+
+  FROM recruitment_watchers
+
+  WHERE
+    recruitment_id = ?
+    AND is_active = 1
+    AND notified_at IS NOT NULL
+    AND julianday(notified_at) <=
+      julianday(
+        'now',
+        '-3 minutes'
+      )
+
+  ORDER BY
+    julianday(created_at) ASC,
+    rowid ASC
+`);
+
+
+const selectExpiredWatchers = db.prepare(`
+  SELECT
+    recruitment_id,
+    user_id
+
+  FROM recruitment_watchers
+
+  WHERE
+    is_active = 1
+    AND notified_at IS NOT NULL
+    AND julianday(notified_at) <=
+      julianday(
+        'now',
+        '-3 minutes'
+      )
+
+  ORDER BY
+    recruitment_id ASC,
+    julianday(created_at) ASC,
+    rowid ASC
+`);
+
+
+const deactivateWatcher = db.prepare(`
+  UPDATE recruitment_watchers
+
+  SET
+    is_active = 0
+
+  WHERE
+    recruitment_id = ?
+    AND user_id = ?
+    AND is_active = 1
+`);
+
+
+const markWatcherPriority = db.prepare(`
+  UPDATE recruitment_watchers
+
+  SET
+    notified_at = strftime(
+      '%Y-%m-%d %H:%M:%f',
+      'now'
+    )
+
+  WHERE
+    recruitment_id = ?
+    AND user_id = ?
+    AND is_active = 1
+    AND notified_at IS NULL
+`);
+
+
+const selectWaitingWatchers = db.prepare(`
+  SELECT
+    user_id,
+    created_at
+
+  FROM recruitment_watchers
+
+  WHERE
+    recruitment_id = ?
+    AND is_active = 1
+    AND notified_at IS NULL
+
+  ORDER BY
+    julianday(created_at) ASC,
+    rowid ASC
+`);
+
+
+const selectPriorityWatchers = db.prepare(`
+  SELECT
+    user_id,
+    created_at,
+    notified_at
+
+  FROM recruitment_watchers
+
+  WHERE
+    recruitment_id = ?
+    AND is_active = 1
+    AND notified_at IS NOT NULL
+    AND julianday(notified_at) >
+      julianday(
+        'now',
+        '-3 minutes'
+      )
+
+  ORDER BY
+    julianday(created_at) ASC,
+    rowid ASC
+`);
+
+
+const selectRecruitmentsNeedingQueue = db.prepare(`
+  SELECT DISTINCT
+    r.id
+
+  FROM recruitments r
+
+  WHERE
+    r.status = 'OPEN'
+
+    AND (
+      SELECT COUNT(*)
+      FROM recruitment_members rm
+      WHERE
+        rm.recruitment_id = r.id
+        AND rm.is_active = 1
+    ) < r.capacity
+
+    AND EXISTS (
+      SELECT 1
+      FROM recruitment_watchers rw
+      WHERE
+        rw.recruitment_id = r.id
+        AND rw.is_active = 1
+    )
+
+  ORDER BY r.id ASC
+`);
+
+
+function getWatcherQueue(
+  recruitmentId
+) {
+  return selectActiveWatchers
+    .all(recruitmentId)
+    .map(
+      (
+        row,
+        index
+      ) => ({
+        userId:
+          row.user_id,
+
+        position:
+          index + 1,
+
+        createdAt:
+          row.created_at,
+
+        notifiedAt:
+          row.notified_at,
+
+        hasPriority:
+          row.has_priority === 1,
+      })
+    );
+}
+
+
+function expireWatchersForRecruitment(
+  recruitmentId
+) {
+  const expired =
+    selectExpiredWatchersForRecruitment
+      .all(recruitmentId);
+
+
+  for (
+    const watcher of expired
+  ) {
+    deactivateWatcher.run(
+      recruitmentId,
+      watcher.user_id
+    );
+  }
+
+
+  return expired.map(
+    (watcher) =>
+      watcher.user_id
+  );
+}
+
+
+function expireAllTimedOutWatchers() {
+  const expired =
+    selectExpiredWatchers.all();
+
+
+  const recruitmentIds =
+    new Set();
+
+
+  for (
+    const watcher of expired
+  ) {
+    deactivateWatcher.run(
+      watcher.recruitment_id,
+      watcher.user_id
+    );
+
+
+    recruitmentIds.add(
+      watcher.recruitment_id
+    );
+  }
+
+
+  return {
+    expired,
+
+    recruitmentIds:
+      [...recruitmentIds],
+  };
+}
 
 
 function getRecruitmentSnapshot(
@@ -243,15 +496,18 @@ function getRecruitmentSnapshot(
       recruitmentId
     );
 
+
   if (!recruitment) {
     return null;
   }
+
 
   const memberIds =
     selectActiveMembers
       .all(recruitmentId)
       .map(
-        (row) => row.user_id
+        (row) =>
+          row.user_id
       );
 
 
@@ -259,11 +515,14 @@ function getRecruitmentSnapshot(
     selectNewbieMembers
       .all(recruitmentId)
       .map(
-        (row) => row.user_id
+        (row) =>
+          row.user_id
       )
       .filter(
         (userId) =>
-          memberIds.includes(userId)
+          memberIds.includes(
+            userId
+          )
       );
 
 
@@ -271,11 +530,18 @@ function getRecruitmentSnapshot(
     memberIds.length;
 
 
+  const watcherQueue =
+    getWatcherQueue(
+      recruitmentId
+    );
+
+
   return {
     recruitment,
     memberIds,
     newbieMemberIds,
     memberCount,
+    watcherQueue,
 
     remaining:
       Math.max(
@@ -292,82 +558,87 @@ function getRecruitmentSnapshot(
 
 
 const createRecruitmentTransaction =
-  db.transaction((data) => {
-    const status =
-      data.memberIds.length >=
-      data.capacity
-        ? 'FULL'
-        : 'OPEN';
+  db.transaction(
+    (data) => {
+      const status =
+        data.memberIds.length >=
+        data.capacity
+          ? 'FULL'
+          : 'OPEN';
 
 
-    const result =
-      insertRecruitment.run({
-        guildId:
-          data.guildId,
+      const result =
+        insertRecruitment.run({
+          guildId:
+            data.guildId,
 
-        channelId:
-          data.channelId,
+          channelId:
+            data.channelId,
 
-        type:
-          data.type,
+          type:
+            data.type,
 
-        creatorId:
-          data.creatorId,
+          creatorId:
+            data.creatorId,
 
-        voiceKind:
-          data.voiceKind,
+          voiceKind:
+            data.voiceKind,
 
-        voiceRoomNumber:
-          data.voiceRoomNumber,
+          voiceRoomNumber:
+            data.voiceRoomNumber,
 
-        gameName:
-          data.gameName || null,
+          gameName:
+            data.gameName || null,
 
-        description:
-          data.description || null,
+          description:
+            data.description || null,
 
-        capacity:
-          data.capacity,
+          capacity:
+            data.capacity,
 
-        startTime:
-          data.startTime,
+          startTime:
+            data.startTime,
+
+          status,
+        });
+
+
+      const recruitmentId =
+        Number(
+          result.lastInsertRowid
+        );
+
+
+      for (
+        const userId of
+          data.memberIds
+      ) {
+        upsertMember.run(
+          recruitmentId,
+          userId
+        );
+      }
+
+
+      for (
+        const userId of
+          data.newbieMemberIds || []
+      ) {
+        insertNewbieMember.run(
+          recruitmentId,
+          userId
+        );
+      }
+
+
+      return {
+        id:
+          recruitmentId,
 
         status,
-      });
-
-
-    const recruitmentId =
-      Number(
-        result.lastInsertRowid
-      );
-
-
-    for (
-      const userId of data.memberIds
-    ) {
-      upsertMember.run(
-        recruitmentId,
-        userId
-      );
+      };
     }
-
-
-    for (
-      const userId of
-        data.newbieMemberIds || []
-    ) {
-      insertNewbieMember.run(
-        recruitmentId,
-        userId
-      );
-    }
-
-
-    return {
-      id: recruitmentId,
-      status,
-    };
-  });
+  );
 
 
 const joinRecruitmentTransaction =
@@ -381,9 +652,11 @@ const joinRecruitmentTransaction =
           recruitmentId
         );
 
+
       if (!recruitment) {
         return {
-          code: 'NOT_FOUND',
+          code:
+            'NOT_FOUND',
         };
       }
 
@@ -397,7 +670,8 @@ const joinRecruitmentTransaction =
         )
       ) {
         return {
-          code: 'CLOSED',
+          code:
+            'CLOSED',
         };
       }
 
@@ -408,12 +682,22 @@ const joinRecruitmentTransaction =
           userId
         );
 
+
       if (alreadyMember) {
         return {
           code:
             'ALREADY_JOINED',
         };
       }
+
+
+      /*
+       * 참여 검사 전에
+       * 만료된 우선권 정리
+       */
+      expireWatchersForRecruitment(
+        recruitmentId
+      );
 
 
       const currentCount =
@@ -431,13 +715,74 @@ const joinRecruitmentTransaction =
           recruitmentId
         );
 
+
         return {
-          code: 'FULL',
+          code:
+            'FULL',
+        };
+      }
+
+
+      const freeSlots =
+        recruitment.capacity -
+        currentCount;
+
+
+      const watcherQueue =
+        getWatcherQueue(
+          recruitmentId
+        );
+
+
+      const reservedWatchers =
+        watcherQueue.slice(
+          0,
+          freeSlots
+        );
+
+
+      const reservedIds =
+        reservedWatchers.map(
+          (watcher) =>
+            watcher.userId
+        );
+
+
+      /*
+       * 현재 빈자리가 대기자에게
+       * 전부 예약되어 있다면
+       * 순번자가 아닌 사람은 참여 불가
+       */
+      if (
+        watcherQueue.length >=
+          freeSlots &&
+        !reservedIds.includes(
+          userId
+        )
+      ) {
+        return {
+          code:
+            'QUEUE_RESERVED',
+
+          priorityUserIds:
+            reservedIds,
+
+          watcherQueue,
         };
       }
 
 
       upsertMember.run(
+        recruitmentId,
+        userId
+      );
+
+
+      /*
+       * 대기자가 참여했다면
+       * 대기열에서는 제거
+       */
+      deactivateWatcher.run(
         recruitmentId,
         userId
       );
@@ -461,7 +806,8 @@ const joinRecruitmentTransaction =
 
 
       return {
-        code: 'JOINED',
+        code:
+          'JOINED',
 
         snapshot:
           getRecruitmentSnapshot(
@@ -483,9 +829,11 @@ const cancelRecruitmentTransaction =
           recruitmentId
         );
 
+
       if (!recruitment) {
         return {
-          code: 'NOT_FOUND',
+          code:
+            'NOT_FOUND',
         };
       }
 
@@ -495,6 +843,7 @@ const cancelRecruitmentTransaction =
           recruitmentId,
           userId
         );
+
 
       if (!activeMember) {
         return {
@@ -551,7 +900,9 @@ const cancelRecruitmentTransaction =
   );
 
 
-function createRecruitment(data) {
+function createRecruitment(
+  data
+) {
   return createRecruitmentTransaction(
     data
   );
@@ -584,6 +935,15 @@ function addRecruitmentWatcher(
   recruitmentId,
   userId
 ) {
+  /*
+   * 지나간 3분 우선권이 있으면
+   * 먼저 정리
+   */
+  expireWatchersForRecruitment(
+    recruitmentId
+  );
+
+
   const snapshot =
     getRecruitmentSnapshot(
       recruitmentId
@@ -592,7 +952,8 @@ function addRecruitmentWatcher(
 
   if (!snapshot) {
     return {
-      code: 'NOT_FOUND',
+      code:
+        'NOT_FOUND',
     };
   }
 
@@ -609,14 +970,9 @@ function addRecruitmentWatcher(
   }
 
 
-  if (!snapshot.isFull) {
-    return {
-      code:
-        'NOT_FULL',
-    };
-  }
-
-
+  /*
+   * 이미 자리알림에 등록되어 있는지 확인
+   */
   const existing =
     selectActiveWatcher.get(
       recruitmentId,
@@ -625,9 +981,60 @@ function addRecruitmentWatcher(
 
 
   if (existing) {
+    const watcher =
+      snapshot.watcherQueue.find(
+        (item) =>
+          item.userId ===
+          userId
+      );
+
+
     return {
       code:
         'ALREADY_WATCHING',
+
+      position:
+        watcher?.position ||
+        null,
+
+      snapshot,
+    };
+  }
+
+
+  const freeSlots =
+    snapshot.remaining;
+
+
+  /*
+   * 핵심 수정 부분
+   *
+   * 빈자리가 있더라도
+   * 그 빈자리가 기존 대기자에게
+   * 전부 예약되어 있다면
+   * 새 사람은 다음 순번으로 등록 가능
+   *
+   * 예:
+   * 현재 1/2 + 1순위 우선권 진행 중
+   * → 새 알림 신청자는 2순위
+   *
+   * 현재 0/2 + 대기자 1명
+   * → 빈자리 2개 중 1개는 아직 일반 참여 가능
+   * → 자리알림 대신 바로 참여 안내
+   */
+  const allOpenSlotsReserved =
+    freeSlots > 0 &&
+    snapshot.watcherQueue.length >=
+      freeSlots;
+
+
+  if (
+    !snapshot.isFull &&
+    !allOpenSlotsReserved
+  ) {
+    return {
+      code:
+        'NOT_FULL',
     };
   }
 
@@ -638,9 +1045,30 @@ function addRecruitmentWatcher(
   );
 
 
+  const newSnapshot =
+    getRecruitmentSnapshot(
+      recruitmentId
+    );
+
+
+  const watcher =
+    newSnapshot.watcherQueue.find(
+      (item) =>
+        item.userId ===
+        userId
+    );
+
+
   return {
     code:
       'WATCHING',
+
+    position:
+      watcher?.position ||
+      null,
+
+    snapshot:
+      newSnapshot,
   };
 }
 
@@ -648,29 +1076,175 @@ function addRecruitmentWatcher(
 function getActiveWatchers(
   recruitmentId
 ) {
-  return selectActiveWatchers
-    .all(recruitmentId)
+  return getWatcherQueue(
+    recruitmentId
+  ).map(
+    (watcher) =>
+      watcher.userId
+  );
+}
+
+
+const claimNextWatchersTransaction =
+  db.transaction(
+    (
+      recruitmentId
+    ) => {
+      expireWatchersForRecruitment(
+        recruitmentId
+      );
+
+
+      const recruitment =
+        selectRecruitment.get(
+          recruitmentId
+        );
+
+
+      if (!recruitment) {
+        return [];
+      }
+
+
+      const memberCount =
+        countActiveMembers.get(
+          recruitmentId
+        ).count;
+
+
+      const freeSlots =
+        Math.max(
+          recruitment.capacity -
+            memberCount,
+          0
+        );
+
+
+      if (
+        freeSlots <= 0
+      ) {
+        return [];
+      }
+
+
+      const currentPriority =
+        selectPriorityWatchers.all(
+          recruitmentId
+        );
+
+
+      const needed =
+        Math.max(
+          freeSlots -
+            currentPriority.length,
+          0
+        );
+
+
+      if (
+        needed <= 0
+      ) {
+        return [];
+      }
+
+
+      const waiting =
+        selectWaitingWatchers
+          .all(recruitmentId)
+          .slice(
+            0,
+            needed
+          );
+
+
+      const claimed = [];
+
+
+      for (
+        const watcher of waiting
+      ) {
+        const result =
+          markWatcherPriority.run(
+            recruitmentId,
+            watcher.user_id
+          );
+
+
+        if (
+          result.changes > 0
+        ) {
+          claimed.push(
+            watcher.user_id
+          );
+        }
+      }
+
+
+      return claimed;
+    }
+  );
+
+
+function claimNextWatchersForOpenSlots(
+  recruitmentId
+) {
+  return claimNextWatchersTransaction(
+    recruitmentId
+  );
+}
+
+
+function removeRecruitmentWatcher(
+  recruitmentId,
+  userId
+) {
+  const result =
+    deactivateWatcher.run(
+      recruitmentId,
+      userId
+    );
+
+
+  return (
+    result.changes > 0
+  );
+}
+
+
+/*
+ * 이 함수가 아까 빠져 있어서
+ * TypeError가 났던 부분입니다.
+ */
+function getRecruitmentIdsNeedingQueueProcessing() {
+  return selectRecruitmentsNeedingQueue
+    .all()
     .map(
-      (row) => row.user_id
+      (row) =>
+        row.id
     );
 }
 
 
+/*
+ * 기존 코드 호환용
+ */
 function markWatchersNotified(
   recruitmentId,
   userIds
 ) {
   const transaction =
-    db.transaction(() => {
-      for (
-        const userId of userIds
-      ) {
-        deactivateWatcher.run(
-          recruitmentId,
-          userId
-        );
+    db.transaction(
+      () => {
+        for (
+          const userId of userIds
+        ) {
+          markWatcherPriority.run(
+            recruitmentId,
+            userId
+          );
+        }
       }
-    });
+    );
 
 
   transaction();
@@ -698,6 +1272,8 @@ function deleteRecruitment(
 
 
 module.exports = {
+  WAIT_PRIORITY_SECONDS,
+
   createRecruitment,
   getRecruitmentSnapshot,
   joinRecruitment,
@@ -705,6 +1281,16 @@ module.exports = {
 
   addRecruitmentWatcher,
   getActiveWatchers,
+  getWatcherQueue,
+
+  claimNextWatchersForOpenSlots,
+  removeRecruitmentWatcher,
+
+  expireWatchersForRecruitment,
+  expireAllTimedOutWatchers,
+
+  getRecruitmentIdsNeedingQueueProcessing,
+
   markWatchersNotified,
 
   setRecruitmentMessageId,

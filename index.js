@@ -34,6 +34,10 @@ const {
 } = require('./src/handlers/interactionHandler');
 
 const {
+  processAllRecruitmentQueues
+} = require('./src/handlers/recruitButtonHandler');
+
+const {
   handleVoiceStateUpdate,
   checkAllNewbieParties
 } = require('./src/handlers/voiceStateHandler');
@@ -79,6 +83,17 @@ loadCommands(client);
  * 5초마다 자동으로 다시 확인합니다.
  */
 const NEWBIE_ACTIVITY_CHECK_INTERVAL =
+  5000;
+
+
+/*
+ * 자리알림 대기열도
+ * 5초마다 확인합니다.
+ *
+ * 3분 우선권이 끝난 사람을 정리하고
+ * 자동으로 다음 순번에게 넘깁니다.
+ */
+const RECRUIT_QUEUE_CHECK_INTERVAL =
   5000;
 
 
@@ -189,7 +204,21 @@ client.once(
     });
 
 
+    /*
+     * 봇 재시작 직후에도
+     * 신입파티 상태를 바로 확인합니다.
+     */
     void checkAllNewbieParties(
+      client
+    );
+
+
+    /*
+     * 봇이 꺼져있는 동안
+     * 자리알림 우선권 시간이 지났을 수도 있으므로
+     * 시작과 동시에 대기열도 한 번 확인합니다.
+     */
+    void processAllRecruitmentQueues(
       client
     );
 
@@ -206,6 +235,20 @@ client.once(
         );
       },
       NEWBIE_ACTIVITY_CHECK_INTERVAL
+    );
+
+
+    /*
+     * 3분 우선권 만료 및
+     * 다음 대기순번 자동 처리
+     */
+    setInterval(
+      () => {
+        void processAllRecruitmentQueues(
+          client
+        );
+      },
+      RECRUIT_QUEUE_CHECK_INTERVAL
     );
 
 
