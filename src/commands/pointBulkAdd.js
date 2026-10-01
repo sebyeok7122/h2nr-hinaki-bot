@@ -1,7 +1,6 @@
 const {
   SlashCommandBuilder,
   ActionRowBuilder,
-  UserSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags
@@ -19,15 +18,14 @@ const {
 
 const MAX_BULK_USERS = 40;
 
+const USERS_PER_STEP = 20;
+
 const SESSION_TIMEOUT_MS =
   10 * 60 * 1000;
 
 
 /*
- * 운영진별 일괄지급 임시 설정
- *
- * key:
- * guildId:userId
+ * 운영진별 일괄지급 임시 세션
  */
 const bulkPointSessions =
   new Map();
@@ -161,49 +159,64 @@ function deleteSession(
 }
 
 
-function buildUserSelect(
-  currentCount
+/*
+ * 대상1 ~ 대상20
+ * @유저 직접 선택 옵션
+ */
+function addUserOptions(
+  subcommand
 ) {
-  const remaining =
-    Math.max(
-      MAX_BULK_USERS -
-        currentCount,
-      0
-    );
-
-
-  if (
-    remaining <= 0
+  for (
+    let number = 1;
+    number <= USERS_PER_STEP;
+    number += 1
   ) {
-    return null;
+    subcommand.addUserOption(
+      (option) =>
+        option
+          .setName(
+            `대상${number}`
+          )
+          .setDescription(
+            '포인트를 지급할 멤버'
+          )
+          .setRequired(
+            number === 1
+          )
+    );
   }
 
 
-  const maxValues =
-    Math.min(
-      remaining,
-      25
-    );
+  return subcommand;
+}
 
 
-  return new ActionRowBuilder()
-    .addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId(
-          'bulk_point_users'
-        )
-        .setPlaceholder(
-          currentCount === 0
-            ? '포인트를 지급할 멤버를 선택해주세요'
-            : `멤버 추가 선택 · 현재 ${currentCount}/${MAX_BULK_USERS}명`
-        )
-        .setMinValues(
-          1
-        )
-        .setMaxValues(
-          maxValues
-        )
-    );
+function getSelectedUsers(
+  interaction
+) {
+  const users = [];
+
+
+  for (
+    let number = 1;
+    number <= USERS_PER_STEP;
+    number += 1
+  ) {
+    const user =
+      interaction.options.getUser(
+        `대상${number}`
+      );
+
+
+    if (user) {
+      users.push(
+        user
+      );
+    }
+  }
+
+
+  return users;
 }
 
 
@@ -248,8 +261,15 @@ function buildSessionContent(
     session.userIds.length;
 
 
+  const mentions =
+    session.userIds.map(
+      (userId) =>
+        `<@${userId}>`
+    );
+
+
   const lines = [
-    '💰 **포인트 일괄 지급**',
+    '💰 **포인트 일괄 지급 준비**',
     '',
     `📝 지급 사유: **${session.reasonLabel}**`,
     `💎 1인당 지급: **+${session.amount}P**`,
@@ -258,32 +278,30 @@ function buildSessionContent(
 
 
   if (
-    selectedCount > 0
+    mentions.length > 0
   ) {
     lines.push(
       '',
-      '👤 **현재 선택된 멤버**'
-    );
-
-
-    const mentions =
-      session.userIds.map(
-        (userId) =>
-          `<@${userId}>`
-      );
-
-
-    lines.push(
+      '👤 **지급 대상**',
       mentions.join(' ')
+    );
+  }
+
+
+  if (
+    selectedCount <
+    MAX_BULK_USERS
+  ) {
+    lines.push(
+      '',
+      '➕ 대상이 더 있다면 `/포인트일괄지급 추가`를 사용해주세요.'
     );
   }
 
 
   lines.push(
     '',
-    selectedCount === 0
-      ? '아래에서 지급할 멤버를 선택해주세요.'
-      : '멤버를 더 추가하거나 **일괄 지급**을 눌러주세요.'
+    '모두 확인한 뒤 **✅ 일괄 지급**을 눌러주세요.'
   );
 
 
@@ -291,48 +309,24 @@ function buildSessionContent(
 }
 
 
-function buildSessionComponents(
-  session
-) {
-  const components = [];
-
-
-  const userSelect =
-    buildUserSelect(
-      session.userIds.length
+let startSubcommand =
+  new SlashCommandBuilder()
+    .setName(
+      '포인트일괄지급'
+    )
+    .setDescription(
+      '운영진이 최대 40명에게 포인트를 한 번에 지급합니다.'
     );
 
 
-  if (
-    userSelect
-  ) {
-    components.push(
-      userSelect
-    );
-  }
-
-
-  if (
-    session.userIds.length > 0
-  ) {
-    components.push(
-      buildButtons()
-    );
-  }
-
-
-  return components;
-}
-
-
-module.exports = {
-  data:
-    new SlashCommandBuilder()
+startSubcommand.addSubcommand(
+  (subcommand) => {
+    subcommand
       .setName(
-        '포인트일괄지급'
+        '시작'
       )
       .setDescription(
-        '운영진이 최대 40명에게 포인트를 한 번에 지급합니다.'
+        '일괄 포인트 지급을 시작합니다.'
       )
 
       .addStringOption(
@@ -409,8 +403,15 @@ module.exports = {
                   'OTHER',
               }
             )
-      )
+      );
 
+
+    addUserOptions(
+      subcommand
+    );
+
+
+    subcommand
       .addIntegerOption(
         (option) =>
           option
@@ -446,7 +447,38 @@ module.exports = {
             .setMaxLength(
               100
             )
-      ),
+      );
+
+
+    return subcommand;
+  }
+);
+
+
+startSubcommand.addSubcommand(
+  (subcommand) => {
+    subcommand
+      .setName(
+        '추가'
+      )
+      .setDescription(
+        '진행 중인 일괄 지급에 멤버를 추가합니다.'
+      );
+
+
+    addUserOptions(
+      subcommand
+    );
+
+
+    return subcommand;
+  }
+);
+
+
+module.exports = {
+  data:
+    startSubcommand,
 
 
   async execute(
@@ -472,46 +504,132 @@ module.exports = {
     }
 
 
-    const reasonCode =
-      interaction.options.getString(
-        '사유',
+    const subcommand =
+      interaction.options.getSubcommand(
         true
       );
 
 
-    let amount;
-    let reasonLabel;
-    let source;
-
-
     /*
-     * 기타 지급
+     * ─────────────────────
+     * 일괄지급 시작
+     * ─────────────────────
      */
     if (
-      reasonCode ===
-      'OTHER'
+      subcommand ===
+      '시작'
     ) {
-      amount =
-        interaction.options.getInteger(
-          '금액'
+      const reasonCode =
+        interaction.options.getString(
+          '사유',
+          true
         );
 
 
-      const customReason =
-        interaction.options
-          .getString(
-            '기타사유'
-          )
-          ?.trim();
+      let amount;
+      let reasonLabel;
+      let source;
 
 
       if (
-        !amount ||
-        !customReason
+        reasonCode ===
+        'OTHER'
+      ) {
+        amount =
+          interaction.options.getInteger(
+            '금액'
+          );
+
+
+        const customReason =
+          interaction.options
+            .getString(
+              '기타사유'
+            )
+            ?.trim();
+
+
+        if (
+          !amount ||
+          !customReason
+        ) {
+          await interaction.reply({
+            content:
+              '✏️ **기타 지급**을 선택했을 때는 `금액`과 `기타사유`를 모두 입력해주세요.',
+
+            flags:
+              MessageFlags.Ephemeral,
+          });
+
+          return;
+        }
+
+
+        reasonLabel =
+          customReason;
+
+        source =
+          'STAFF_OTHER';
+
+      } else {
+        const reason =
+          POINT_REASONS[
+            reasonCode
+          ];
+
+
+        if (!reason) {
+          await interaction.reply({
+            content:
+              '❎ 알 수 없는 포인트 지급 사유입니다.',
+
+            flags:
+              MessageFlags.Ephemeral,
+          });
+
+          return;
+        }
+
+
+        amount =
+          reason.amount;
+
+        reasonLabel =
+          reason.label;
+
+        source =
+          reasonCode;
+      }
+
+
+      const selectedUsers =
+        getSelectedUsers(
+          interaction
+        );
+
+
+      const userIds = [
+        ...new Set(
+          selectedUsers
+            .filter(
+              (user) =>
+                !user.bot
+            )
+            .map(
+              (user) =>
+                user.id
+            )
+        ),
+      ];
+
+
+      if (
+        userIds.length ===
+        0
       ) {
         await interaction.reply({
           content:
-            '✏️ **기타 지급**을 선택했을 때는 `금액`과 `기타사유`를 모두 입력해주세요.',
+            '❎ 지급할 멤버를 한 명 이상 선택해주세요.',
 
           flags:
             MessageFlags.Ephemeral,
@@ -521,105 +639,216 @@ module.exports = {
       }
 
 
-      reasonLabel =
-        customReason;
+      const session = {
+        guildId:
+          interaction.guildId,
 
-      source =
-        'STAFF_OTHER';
+        staffUserId:
+          interaction.user.id,
 
-    } else {
-      const reason =
-        POINT_REASONS[
-          reasonCode
-        ];
+        amount,
 
+        reasonCode,
 
-      if (!reason) {
-        await interaction.reply({
-          content:
-            '❎ 알 수 없는 포인트 지급 사유입니다.',
+        reasonLabel,
 
-          flags:
-            MessageFlags.Ephemeral,
-        });
+        source,
 
-        return;
-      }
+        userIds,
+
+        createdAt:
+          Date.now(),
+      };
 
 
-      amount =
-        reason.amount;
+      bulkPointSessions.set(
+        getSessionKey(
+          interaction.guildId,
+          interaction.user.id
+        ),
+        session
+      );
 
-      reasonLabel =
-        reason.label;
 
-      source =
-        reasonCode;
+      await interaction.reply({
+        content:
+          buildSessionContent(
+            session
+          ),
+
+        components: [
+          buildButtons(),
+        ],
+
+        allowedMentions: {
+          parse: [],
+        },
+
+        flags:
+          MessageFlags.Ephemeral,
+      });
+
+
+      return;
     }
 
 
-    const session = {
-      guildId:
-        interaction.guildId,
-
-      staffUserId:
-        interaction.user.id,
-
-      amount,
-
-      reasonCode,
-
-      reasonLabel,
-
-      source,
-
-      userIds:
-        [],
-
-      createdAt:
-        Date.now(),
-    };
+    /*
+     * ─────────────────────
+     * 대상 추가
+     * ─────────────────────
+     */
+    if (
+      subcommand ===
+      '추가'
+    ) {
+      const session =
+        getSession(
+          interaction.guildId,
+          interaction.user.id
+        );
 
 
-    bulkPointSessions.set(
-      getSessionKey(
-        interaction.guildId,
-        interaction.user.id
-      ),
-      session
-    );
+      if (!session) {
+        await interaction.reply({
+          content:
+            '⏰ 진행 중인 일괄 지급이 없어요.\n먼저 `/포인트일괄지급 시작`을 실행해주세요.',
+
+          flags:
+            MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
 
 
-    await interaction.reply({
-      content:
+      if (
+        session.userIds.length >=
+        MAX_BULK_USERS
+      ) {
+        await interaction.reply({
+          content:
+            '👥 이미 최대 인원인 **40명**이 선택되어 있어요.',
+
+          flags:
+            MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+
+      const selectedUsers =
+        getSelectedUsers(
+          interaction
+        );
+
+
+      const currentIds =
+        new Set(
+          session.userIds
+        );
+
+
+      let duplicateCount = 0;
+      let botCount = 0;
+      let addedCount = 0;
+
+
+      for (
+        const user of
+          selectedUsers
+      ) {
+        if (
+          user.bot
+        ) {
+          botCount += 1;
+
+          continue;
+        }
+
+
+        if (
+          currentIds.has(
+            user.id
+          )
+        ) {
+          duplicateCount += 1;
+
+          continue;
+        }
+
+
+        if (
+          currentIds.size >=
+          MAX_BULK_USERS
+        ) {
+          break;
+        }
+
+
+        currentIds.add(
+          user.id
+        );
+
+        addedCount += 1;
+      }
+
+
+      session.userIds =
+        [...currentIds];
+
+
+      let content =
         buildSessionContent(
           session
-        ),
+        );
 
-      components:
-        buildSessionComponents(
-          session
-        ),
 
-      allowedMentions: {
-        parse: [],
-      },
+      content +=
+        `\n\n➕ 이번에 추가된 멤버: **${addedCount}명**`;
 
-      flags:
-        MessageFlags.Ephemeral,
-    });
+
+      if (
+        duplicateCount > 0
+      ) {
+        content +=
+          `\n♻️ 중복 선택 제외: **${duplicateCount}명**`;
+      }
+
+
+      if (
+        botCount > 0
+      ) {
+        content +=
+          `\n🤖 봇 계정 제외: **${botCount}명**`;
+      }
+
+
+      await interaction.reply({
+        content,
+
+        components: [
+          buildButtons(),
+        ],
+
+        allowedMentions: {
+          parse: [],
+        },
+
+        flags:
+          MessageFlags.Ephemeral,
+      });
+
+
+      return;
+    }
   },
 
 
   async handleBulkPointInteraction(
     interaction
   ) {
-    const isUserSelect =
-      interaction.isUserSelectMenu() &&
-      interaction.customId ===
-        'bulk_point_users';
-
-
     const isConfirm =
       interaction.isButton() &&
       interaction.customId ===
@@ -633,7 +862,6 @@ module.exports = {
 
 
     if (
-      !isUserSelect &&
       !isConfirm &&
       !isCancel
     ) {
@@ -651,7 +879,7 @@ module.exports = {
     if (!session) {
       await interaction.reply({
         content:
-          '⏰ 일괄 지급 설정 시간이 만료됐어요. `/포인트일괄지급`을 다시 실행해주세요.',
+          '⏰ 일괄 지급 설정 시간이 만료됐어요. `/포인트일괄지급 시작`을 다시 실행해주세요.',
 
         flags:
           MessageFlags.Ephemeral,
@@ -687,117 +915,14 @@ module.exports = {
 
 
     /*
-     * 멤버 선택 / 추가
-     */
-    if (
-      isUserSelect
-    ) {
-      const currentIds =
-        new Set(
-          session.userIds
-        );
-
-
-      let skippedBots = 0;
-
-
-      for (
-        const userId of
-          interaction.values
-      ) {
-        const selectedUser =
-          interaction.users.get(
-            userId
-          );
-
-
-        if (
-          selectedUser?.bot
-        ) {
-          skippedBots += 1;
-
-          continue;
-        }
-
-
-        if (
-          currentIds.size >=
-          MAX_BULK_USERS
-        ) {
-          break;
-        }
-
-
-        currentIds.add(
-          userId
-        );
-      }
-
-
-      session.userIds =
-        [...currentIds].slice(
-          0,
-          MAX_BULK_USERS
-        );
-
-
-      let content =
-        buildSessionContent(
-          session
-        );
-
-
-      if (
-        skippedBots > 0
-      ) {
-        content +=
-          `\n\n🤖 봇 계정 ${skippedBots}명은 선택에서 제외했습니다.`;
-      }
-
-
-      await interaction.update({
-        content,
-
-        components:
-          buildSessionComponents(
-            session
-          ),
-
-        allowedMentions: {
-          parse: [],
-        },
-      });
-
-
-      return true;
-    }
-
-
-    /*
      * 최종 지급
      */
     if (
       isConfirm
     ) {
-      if (
-        session.userIds.length ===
-        0
-      ) {
-        await interaction.reply({
-          content:
-            '❎ 지급할 멤버가 선택되지 않았어요.',
-
-          flags:
-            MessageFlags.Ephemeral,
-        });
-
-        return true;
-      }
-
-
       /*
-       * 두 번 눌러 중복 지급되는 것을 막기 위해
-       * 실제 지급 전에 세션부터 제거합니다.
+       * 중복 클릭 방지를 위해
+       * 지급 전에 세션부터 제거합니다.
        */
       deleteSession(
         interaction.guildId,
@@ -857,7 +982,7 @@ module.exports = {
 
 
           /*
-           * 지급 후 신입 10P 자동등업 확인
+           * 신입 10P 자동등업 확인
            */
           const promotionResult =
             await promoteNewbieIfEligible(
@@ -944,8 +1069,8 @@ module.exports = {
 
 
       /*
-       * 신입 → 멤버 승급자가 있다면
-       * 채널에는 한 번만 묶어서 안내합니다.
+       * 자동등업된 사람이 있다면
+       * 채널에 한 번만 안내
        */
       if (
         promotedIds.length > 0
