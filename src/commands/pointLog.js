@@ -52,7 +52,7 @@ module.exports = {
         '포인트로그'
       )
       .setDescription(
-        '멤버의 포인트 획득 내역을 확인합니다.'
+        '멤버의 포인트 획득 및 운영진 정정 내역을 확인합니다.'
       )
 
       .addUserOption(
@@ -62,7 +62,7 @@ module.exports = {
               '대상'
             )
             .setDescription(
-              '포인트 획득 내역을 확인할 멤버'
+              '포인트 내역을 확인할 멤버'
             )
             .setRequired(
               true
@@ -88,11 +88,14 @@ module.exports = {
 
 
     /*
-     * 최근 기록을 넉넉하게 가져온 뒤
-     * +포인트 기록만 공개합니다.
+     * 공개 포인트 로그
      *
-     * 상점 구매, 포인트 사용 등
-     * 마이너스 기록은 공개하지 않습니다.
+     * 보여주는 기록:
+     * 1. 포인트 획득 기록
+     * 2. 운영진이 직접 처리한 차감 기록
+     *
+     * 숨기는 기록:
+     * - 희낙샵 구매 차감
      */
     const transactions =
       getRecentPointTransactions(
@@ -102,7 +105,9 @@ module.exports = {
       )
         .filter(
           (transaction) =>
-            transaction.amount > 0
+            transaction.amount > 0 ||
+            transaction.source ===
+              'STAFF_DEDUCT'
         )
         .slice(
           0,
@@ -113,7 +118,7 @@ module.exports = {
     const embed =
       new EmbedBuilder()
         .setTitle(
-          '📒 포인트 획득 로그'
+          '📒 포인트 로그'
         );
 
 
@@ -125,7 +130,7 @@ module.exports = {
           `👤 <@${target.id}>`,
           `💰 현재 포인트: **${balance}P**`,
           '',
-          '아직 포인트 획득 기록이 없습니다.',
+          '아직 포인트 기록이 없습니다.',
         ].join('\n')
       );
 
@@ -141,8 +146,14 @@ module.exports = {
               transaction.source;
 
 
+            const amountText =
+              transaction.amount > 0
+                ? `+${transaction.amount}P`
+                : `${transaction.amount}P`;
+
+
             return [
-              `**${index + 1}. +${transaction.amount}P · ${reason}**`,
+              `**${index + 1}. ${amountText} · ${reason}**`,
               `└ ${formatCreatedAt(transaction.created_at)}`,
             ].join('\n');
           }
@@ -162,7 +173,9 @@ module.exports = {
 
     /*
      * 서버 멤버 모두가 볼 수 있는
-     * 공개 포인트 획득 로그입니다.
+     * 공개 포인트 로그입니다.
+     *
+     * 희낙샵 구매내역은 공개하지 않습니다.
      */
     await interaction.reply({
       embeds:
