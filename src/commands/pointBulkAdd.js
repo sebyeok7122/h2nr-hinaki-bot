@@ -18,8 +18,6 @@ const {
 
 const MAX_BULK_USERS = 40;
 
-const USERS_PER_STEP = 20;
-
 const SESSION_TIMEOUT_MS =
   10 * 60 * 1000;
 
@@ -134,6 +132,16 @@ function getSession(
       session.createdAt >
     SESSION_TIMEOUT_MS
   ) {
+    if (
+      session.collector &&
+      !session.collector.ended
+    ) {
+      session.collector.stop(
+        'expired'
+      );
+    }
+
+
     bulkPointSessions.delete(
       key
     );
@@ -150,77 +158,36 @@ function deleteSession(
   guildId,
   userId
 ) {
-  bulkPointSessions.delete(
+  const key =
     getSessionKey(
       guildId,
       userId
-    )
-  );
-}
+    );
 
 
-/*
- * 대상1 ~ 대상20
- * @유저 직접 선택 옵션
- */
-function addUserOptions(
-  subcommand
-) {
-  for (
-    let number = 1;
-    number <= USERS_PER_STEP;
-    number += 1
+  const session =
+    bulkPointSessions.get(
+      key
+    );
+
+
+  if (
+    session?.collector &&
+    !session.collector.ended
   ) {
-    subcommand.addUserOption(
-      (option) =>
-        option
-          .setName(
-            `대상${number}`
-          )
-          .setDescription(
-            '포인트를 지급할 멤버'
-          )
-          .setRequired(
-            number === 1
-          )
+    session.collector.stop(
+      'session_deleted'
     );
   }
 
 
-  return subcommand;
+  bulkPointSessions.delete(
+    key
+  );
 }
 
 
-function getSelectedUsers(
-  interaction
-) {
-  const users = [];
-
-
-  for (
-    let number = 1;
-    number <= USERS_PER_STEP;
-    number += 1
-  ) {
-    const user =
-      interaction.options.getUser(
-        `대상${number}`
-      );
-
-
-    if (user) {
-      users.push(
-        user
-      );
-    }
-  }
-
-
-  return users;
-}
-
-
-function buildButtons() {
+function buildConfirmButtons() {
   return new ActionRowBuilder()
     .addComponents(
       new ButtonBuilder()
@@ -254,13 +221,29 @@ function buildButtons() {
 }
 
 
+function buildWaitingButtons() {
+  return new ActionRowBuilder()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId(
+          'bulk_point_cancel'
+        )
+        .setLabel(
+          '취소'
+        )
+        .setEmoji(
+          '❎'
+        )
+        .setStyle(
+          ButtonStyle.Secondary
+        )
+    );
+}
+
+
 function buildSessionContent(
   session
 ) {
-  const selectedCount =
-    session.userIds.length;
-
-
   const mentions =
     session.userIds.map(
       (userId) =>
@@ -268,217 +251,405 @@ function buildSessionContent(
     );
 
 
-  const lines = [
+  return [
     '💰 **포인트 일괄 지급 준비**',
     '',
     `📝 지급 사유: **${session.reasonLabel}**`,
     `💎 1인당 지급: **+${session.amount}P**`,
-    `👥 선택 인원: **${selectedCount}/${MAX_BULK_USERS}명**`,
-  ];
-
-
-  if (
-    mentions.length > 0
-  ) {
-    lines.push(
-      '',
-      '👤 **지급 대상**',
-      mentions.join(' ')
-    );
-  }
-
-
-  if (
-    selectedCount <
-    MAX_BULK_USERS
-  ) {
-    lines.push(
-      '',
-      '➕ 대상이 더 있다면 `/포인트일괄지급 추가`를 사용해주세요.'
-    );
-  }
-
-
-  lines.push(
+    `👥 지급 대상: **${session.userIds.length}/${MAX_BULK_USERS}명**`,
     '',
-    '모두 확인한 뒤 **✅ 일괄 지급**을 눌러주세요.'
-  );
-
-
-  return lines.join('\n');
+    '👤 **지급 대상**',
+    mentions.join(' '),
+    '',
+    '대상을 확인한 뒤 **✅ 일괄 지급**을 눌러주세요.',
+  ].join('\n');
 }
 
 
-let startSubcommand =
+async function safelyDeleteMessage(
+  message
+) {
+  try {
+    if (
+      message.deletable
+    ) {
+      await message.delete();
+    }
+  } catch (error) {
+    console.warn(
+      '⚠️ [포인트 일괄지급] 대상 멘션 메시지 삭제 실패:',
+      error.message
+    );
+  }
+}
+
+
+function createMentionCollector(
+  interaction,
+  session
+) {
+  const collector =
+    interaction.channel.createMessageCollector({
+      filter:
+        (message) => {
+          if (
+            message.author.bot ||
+            message.author.id !==
+              interaction.user.id ||
+            message.guildId !==
+              interaction.guildId
+          ) {
+            return false;
+          }
+
+
+          /*
+           * 희낙이를 함께 멘션한 메시지만 인식
+           *
+           * 예:
+           * @희낙이 @바모 @핑키 @혜진 ...
+           */
+          return message.mentions.users.has(
+            interaction.client.user.id
+          );
+        },
+
+      time:
+        SESSION_TIMEOUT_MS,
+    });
+
+
+  session.collector =
+    collector;
+
+
+  collector.on(
+    'collect',
+    async (message) => {
+      const currentSession =
+        getSession(
+          interaction.guildId,
+          interaction.user.id
+        );
+
+
+      if (
+        currentSession !==
+        session
+      ) {
+        collector.stop(
+          'replaced'
+        );
+
+        return;
+      }
+
+
+      const mentionedUsers = [
+        ...message.mentions.users.values(),
+      ];
+
+
+      const userIds = [
+        ...new Set(
+          mentionedUsers
+            .filter(
+              (user) =>
+                user.id !==
+                  interaction.client.user.id &&
+                !user.bot
+            )
+            .map(
+              (user) =>
+                user.id
+            )
+        ),
+      ];
+
+
+      if (
+        userIds.length ===
+        0
+      ) {
+        await safelyDeleteMessage(
+          message
+        );
+
+
+        await interaction.editReply({
+          content:
+            '❎ 지급 대상 멤버를 찾지 못했어요.\n\n' +
+            `같은 채널에 **@${interaction.client.user.username} + 지급할 멤버들**을 한 메시지로 다시 멘션해주세요.`,
+
+          components: [
+            buildWaitingButtons(),
+          ],
+        });
+
+        return;
+      }
+
+
+      if (
+        userIds.length >
+        MAX_BULK_USERS
+      ) {
+        await safelyDeleteMessage(
+          message
+        );
+
+
+        await interaction.editReply({
+          content:
+            `❎ 한 번에 최대 **${MAX_BULK_USERS}명**까지 지급할 수 있어요.\n` +
+            `현재 선택된 멤버는 **${userIds.length}명**입니다.\n\n` +
+            `같은 채널에 **@${interaction.client.user.username} + 최대 ${MAX_BULK_USERS}명**으로 다시 멘션해주세요.`,
+
+          components: [
+            buildWaitingButtons(),
+          ],
+        });
+
+        return;
+      }
+
+
+      session.userIds =
+        userIds;
+
+
+      collector.stop(
+        'selected'
+      );
+
+
+      await safelyDeleteMessage(
+        message
+      );
+
+
+      await interaction.editReply({
+        content:
+          buildSessionContent(
+            session
+          ),
+
+        components: [
+          buildConfirmButtons(),
+        ],
+
+        allowedMentions: {
+          parse: [],
+        },
+      });
+    }
+  );
+
+
+  collector.on(
+    'end',
+    async (
+      collected,
+      reason
+    ) => {
+      if (
+        [
+          'selected',
+          'session_deleted',
+          'replaced',
+        ].includes(
+          reason
+        )
+      ) {
+        return;
+      }
+
+
+      const key =
+        getSessionKey(
+          interaction.guildId,
+          interaction.user.id
+        );
+
+
+      const currentSession =
+        bulkPointSessions.get(
+          key
+        );
+
+
+      if (
+        currentSession ===
+        session
+      ) {
+        bulkPointSessions.delete(
+          key
+        );
+      }
+
+
+      if (
+        reason ===
+        'time'
+      ) {
+        try {
+          await interaction.editReply({
+            content:
+              '⏰ 포인트 일괄 지급 입력 시간이 만료됐어요.\n`/포인트일괄지급 시작`을 다시 실행해주세요.',
+
+            components:
+              [],
+          });
+
+        } catch (error) {
+          console.warn(
+            '⚠️ [포인트 일괄지급] 만료 안내 실패:',
+            error.message
+          );
+        }
+      }
+    }
+  );
+}
+
+
+const command =
   new SlashCommandBuilder()
     .setName(
       '포인트일괄지급'
     )
     .setDescription(
       '운영진이 최대 40명에게 포인트를 한 번에 지급합니다.'
+    )
+
+    .addSubcommand(
+      (subcommand) =>
+        subcommand
+          .setName(
+            '시작'
+          )
+          .setDescription(
+            '멤버들을 한 메시지에 멘션하여 일괄 지급합니다.'
+          )
+
+          .addStringOption(
+            (option) =>
+              option
+                .setName(
+                  '사유'
+                )
+                .setDescription(
+                  '포인트 지급 사유'
+                )
+                .setRequired(
+                  true
+                )
+                .addChoices(
+                  {
+                    name:
+                      '🏅 우수회원 +3P',
+                    value:
+                      'EXCELLENT_MEMBER',
+                  },
+                  {
+                    name:
+                      '🏆 2연속 우수회원 +6P',
+                    value:
+                      'EXCELLENT_MEMBER_STREAK',
+                  },
+                  {
+                    name:
+                      '🔫 킬내기 참여 +1P',
+                    value:
+                      'KILL_EVENT_JOIN',
+                  },
+                  {
+                    name:
+                      '👑 킬내기 우승 +2P',
+                    value:
+                      'KILL_EVENT_WIN',
+                  },
+                  {
+                    name:
+                      '🎉 이벤트 참여 +3P',
+                    value:
+                      'EVENT_JOIN',
+                  },
+                  {
+                    name:
+                      '🏆 이벤트 우승 +5P',
+                    value:
+                      'EVENT_WIN',
+                  },
+                  {
+                    name:
+                      '🍗 치킨 인증 +1P',
+                    value:
+                      'CHICKEN_PROOF',
+                  },
+                  {
+                    name:
+                      '🌱 신입과 치킨 인증 +2P',
+                    value:
+                      'NEWBIE_CHICKEN',
+                  },
+                  {
+                    name:
+                      '🎬 매드무비 제보 +1P',
+                    value:
+                      'MAD_MOVIE_REPORT',
+                  },
+                  {
+                    name:
+                      '✏️ 기타 지급',
+                    value:
+                      'OTHER',
+                  }
+                )
+          )
+
+          .addIntegerOption(
+            (option) =>
+              option
+                .setName(
+                  '금액'
+                )
+                .setDescription(
+                  '기타 지급일 때만 입력해주세요.'
+                )
+                .setRequired(
+                  false
+                )
+                .setMinValue(
+                  1
+                )
+                .setMaxValue(
+                  100000
+                )
+          )
+
+          .addStringOption(
+            (option) =>
+              option
+                .setName(
+                  '기타사유'
+                )
+                .setDescription(
+                  '기타 지급일 때 사유를 입력해주세요.'
+                )
+                .setRequired(
+                  false
+                )
+                .setMaxLength(
+                  100
+                )
+          )
     );
-
-
-startSubcommand.addSubcommand(
-  (subcommand) => {
-    subcommand
-      .setName(
-        '시작'
-      )
-      .setDescription(
-        '일괄 포인트 지급을 시작합니다.'
-      )
-
-      .addStringOption(
-        (option) =>
-          option
-            .setName(
-              '사유'
-            )
-            .setDescription(
-              '포인트 지급 사유'
-            )
-            .setRequired(
-              true
-            )
-            .addChoices(
-              {
-                name:
-                  '🏅 우수회원 +3P',
-                value:
-                  'EXCELLENT_MEMBER',
-              },
-              {
-                name:
-                  '🏆 2연속 우수회원 +6P',
-                value:
-                  'EXCELLENT_MEMBER_STREAK',
-              },
-              {
-                name:
-                  '🔫 킬내기 참여 +1P',
-                value:
-                  'KILL_EVENT_JOIN',
-              },
-              {
-                name:
-                  '👑 킬내기 우승 +2P',
-                value:
-                  'KILL_EVENT_WIN',
-              },
-              {
-                name:
-                  '🎉 이벤트 참여 +3P',
-                value:
-                  'EVENT_JOIN',
-              },
-              {
-                name:
-                  '🏆 이벤트 우승 +5P',
-                value:
-                  'EVENT_WIN',
-              },
-              {
-                name:
-                  '🍗 치킨 인증 +1P',
-                value:
-                  'CHICKEN_PROOF',
-              },
-              {
-                name:
-                  '🌱 신입과 치킨 인증 +2P',
-                value:
-                  'NEWBIE_CHICKEN',
-              },
-              {
-                name:
-                  '🎬 매드무비 제보 +1P',
-                value:
-                  'MAD_MOVIE_REPORT',
-              },
-              {
-                name:
-                  '✏️ 기타 지급',
-                value:
-                  'OTHER',
-              }
-            )
-      );
-
-
-    addUserOptions(
-      subcommand
-    );
-
-
-    subcommand
-      .addIntegerOption(
-        (option) =>
-          option
-            .setName(
-              '금액'
-            )
-            .setDescription(
-              '기타 지급일 때만 입력해주세요.'
-            )
-            .setRequired(
-              false
-            )
-            .setMinValue(
-              1
-            )
-            .setMaxValue(
-              100000
-            )
-      )
-
-      .addStringOption(
-        (option) =>
-          option
-            .setName(
-              '기타사유'
-            )
-            .setDescription(
-              '기타 지급일 때 사유를 입력해주세요.'
-            )
-            .setRequired(
-              false
-            )
-            .setMaxLength(
-              100
-            )
-      );
-
-
-    return subcommand;
-  }
-);
-
-
-startSubcommand.addSubcommand(
-  (subcommand) => {
-    subcommand
-      .setName(
-        '추가'
-      )
-      .setDescription(
-        '진행 중인 일괄 지급에 멤버를 추가합니다.'
-      );
-
-
-    addUserOptions(
-      subcommand
-    );
-
-
-    return subcommand;
-  }
-);
 
 
 module.exports = {
   data:
-    startSubcommand,
+    command,
 
 
   async execute(
@@ -504,345 +675,160 @@ module.exports = {
     }
 
 
-    const subcommand =
-      interaction.options.getSubcommand(
+    const reasonCode =
+      interaction.options.getString(
+        '사유',
         true
       );
 
 
-    /*
-     * ─────────────────────
-     * 일괄지급 시작
-     * ─────────────────────
-     */
+    let amount;
+    let reasonLabel;
+    let source;
+
+
     if (
-      subcommand ===
-      '시작'
+      reasonCode ===
+      'OTHER'
     ) {
-      const reasonCode =
-        interaction.options.getString(
-          '사유',
-          true
+      amount =
+        interaction.options.getInteger(
+          '금액'
         );
 
 
-      let amount;
-      let reasonLabel;
-      let source;
-
-
-      if (
-        reasonCode ===
-        'OTHER'
-      ) {
-        amount =
-          interaction.options.getInteger(
-            '금액'
-          );
-
-
-        const customReason =
-          interaction.options
-            .getString(
-              '기타사유'
-            )
-            ?.trim();
-
-
-        if (
-          !amount ||
-          !customReason
-        ) {
-          await interaction.reply({
-            content:
-              '✏️ **기타 지급**을 선택했을 때는 `금액`과 `기타사유`를 모두 입력해주세요.',
-
-            flags:
-              MessageFlags.Ephemeral,
-          });
-
-          return;
-        }
-
-
-        reasonLabel =
-          customReason;
-
-        source =
-          'STAFF_OTHER';
-
-      } else {
-        const reason =
-          POINT_REASONS[
-            reasonCode
-          ];
-
-
-        if (!reason) {
-          await interaction.reply({
-            content:
-              '❎ 알 수 없는 포인트 지급 사유입니다.',
-
-            flags:
-              MessageFlags.Ephemeral,
-          });
-
-          return;
-        }
-
-
-        amount =
-          reason.amount;
-
-        reasonLabel =
-          reason.label;
-
-        source =
-          reasonCode;
-      }
-
-
-      const selectedUsers =
-        getSelectedUsers(
-          interaction
-        );
-
-
-      const userIds = [
-        ...new Set(
-          selectedUsers
-            .filter(
-              (user) =>
-                !user.bot
-            )
-            .map(
-              (user) =>
-                user.id
-            )
-        ),
-      ];
-
-
-      if (
-        userIds.length ===
-        0
-      ) {
-        await interaction.reply({
-          content:
-            '❎ 지급할 멤버를 한 명 이상 선택해주세요.',
-
-          flags:
-            MessageFlags.Ephemeral,
-        });
-
-        return;
-      }
-
-
-      const session = {
-        guildId:
-          interaction.guildId,
-
-        staffUserId:
-          interaction.user.id,
-
-        amount,
-
-        reasonCode,
-
-        reasonLabel,
-
-        source,
-
-        userIds,
-
-        createdAt:
-          Date.now(),
-      };
-
-
-      bulkPointSessions.set(
-        getSessionKey(
-          interaction.guildId,
-          interaction.user.id
-        ),
-        session
-      );
-
-
-      await interaction.reply({
-        content:
-          buildSessionContent(
-            session
-          ),
-
-        components: [
-          buildButtons(),
-        ],
-
-        allowedMentions: {
-          parse: [],
-        },
-
-        flags:
-          MessageFlags.Ephemeral,
-      });
-
-
-      return;
-    }
-
-
-    /*
-     * ─────────────────────
-     * 대상 추가
-     * ─────────────────────
-     */
-    if (
-      subcommand ===
-      '추가'
-    ) {
-      const session =
-        getSession(
-          interaction.guildId,
-          interaction.user.id
-        );
-
-
-      if (!session) {
-        await interaction.reply({
-          content:
-            '⏰ 진행 중인 일괄 지급이 없어요.\n먼저 `/포인트일괄지급 시작`을 실행해주세요.',
-
-          flags:
-            MessageFlags.Ephemeral,
-        });
-
-        return;
-      }
-
-
-      if (
-        session.userIds.length >=
-        MAX_BULK_USERS
-      ) {
-        await interaction.reply({
-          content:
-            '👥 이미 최대 인원인 **40명**이 선택되어 있어요.',
-
-          flags:
-            MessageFlags.Ephemeral,
-        });
-
-        return;
-      }
-
-
-      const selectedUsers =
-        getSelectedUsers(
-          interaction
-        );
-
-
-      const currentIds =
-        new Set(
-          session.userIds
-        );
-
-
-      let duplicateCount = 0;
-      let botCount = 0;
-      let addedCount = 0;
-
-
-      for (
-        const user of
-          selectedUsers
-      ) {
-        if (
-          user.bot
-        ) {
-          botCount += 1;
-
-          continue;
-        }
-
-
-        if (
-          currentIds.has(
-            user.id
+      const customReason =
+        interaction.options
+          .getString(
+            '기타사유'
           )
-        ) {
-          duplicateCount += 1;
-
-          continue;
-        }
-
-
-        if (
-          currentIds.size >=
-          MAX_BULK_USERS
-        ) {
-          break;
-        }
-
-
-        currentIds.add(
-          user.id
-        );
-
-        addedCount += 1;
-      }
-
-
-      session.userIds =
-        [...currentIds];
-
-
-      let content =
-        buildSessionContent(
-          session
-        );
-
-
-      content +=
-        `\n\n➕ 이번에 추가된 멤버: **${addedCount}명**`;
+          ?.trim();
 
 
       if (
-        duplicateCount > 0
+        !amount ||
+        !customReason
       ) {
-        content +=
-          `\n♻️ 중복 선택 제외: **${duplicateCount}명**`;
+        await interaction.reply({
+          content:
+            '✏️ **기타 지급**을 선택했을 때는 `금액`과 `기타사유`를 모두 입력해주세요.',
+
+          flags:
+            MessageFlags.Ephemeral,
+        });
+
+        return;
       }
 
 
-      if (
-        botCount > 0
-      ) {
-        content +=
-          `\n🤖 봇 계정 제외: **${botCount}명**`;
+      reasonLabel =
+        customReason;
+
+      source =
+        'STAFF_OTHER';
+
+    } else {
+      const reason =
+        POINT_REASONS[
+          reasonCode
+        ];
+
+
+      if (!reason) {
+        await interaction.reply({
+          content:
+            '❎ 알 수 없는 포인트 지급 사유입니다.',
+
+          flags:
+            MessageFlags.Ephemeral,
+        });
+
+        return;
       }
 
 
-      await interaction.reply({
-        content,
+      amount =
+        reason.amount;
 
-        components: [
-          buildButtons(),
-        ],
+      reasonLabel =
+        reason.label;
 
-        allowedMentions: {
-          parse: [],
-        },
-
-        flags:
-          MessageFlags.Ephemeral,
-      });
-
-
-      return;
+      source =
+        reasonCode;
     }
+
+
+    /*
+     * 같은 운영진의 이전 대기 세션이 있다면 종료
+     */
+    deleteSession(
+      interaction.guildId,
+      interaction.user.id
+    );
+
+
+    const session = {
+      guildId:
+        interaction.guildId,
+
+      channelId:
+        interaction.channelId,
+
+      staffUserId:
+        interaction.user.id,
+
+      amount,
+
+      reasonCode,
+
+      reasonLabel,
+
+      source,
+
+      userIds:
+        [],
+
+      collector:
+        null,
+
+      createdAt:
+        Date.now(),
+    };
+
+
+    bulkPointSessions.set(
+      getSessionKey(
+        interaction.guildId,
+        interaction.user.id
+      ),
+      session
+    );
+
+
+    await interaction.reply({
+      content:
+        '💰 **포인트 일괄 지급 대상 입력**\n\n' +
+        `📝 지급 사유: **${reasonLabel}**\n` +
+        `💎 1인당 지급: **+${amount}P**\n\n` +
+        '이제 **같은 채널에 한 메시지로** 지급할 멤버들을 멘션해주세요.\n\n' +
+        `예시: **@${interaction.client.user.username} @바모 @핑키 @혜진 @꿀민 ...**\n\n` +
+        `⚠️ 맨 앞에 **@${interaction.client.user.username}**도 꼭 같이 멘션해주세요.\n` +
+        `👥 최대 **${MAX_BULK_USERS}명**까지 한 번에 받을 수 있어요.\n` +
+        '같은 멤버를 여러 번 멘션해도 한 명으로 처리합니다.',
+
+      components: [
+        buildWaitingButtons(),
+      ],
+
+      flags:
+        MessageFlags.Ephemeral,
+    });
+
+
+    createMentionCollector(
+      interaction,
+      session
+    );
   },
 
 
@@ -920,6 +906,22 @@ module.exports = {
     if (
       isConfirm
     ) {
+      if (
+        session.userIds.length ===
+        0
+      ) {
+        await interaction.reply({
+          content:
+            '❎ 아직 지급 대상이 입력되지 않았어요.',
+
+          flags:
+            MessageFlags.Ephemeral,
+        });
+
+        return true;
+      }
+
+
       /*
        * 중복 클릭 방지를 위해
        * 지급 전에 세션부터 제거합니다.
