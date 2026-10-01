@@ -146,6 +146,46 @@ const startProgress =
 
 
 /*
+ * 실행 중인 시간을 DB 누적값에 중간 저장합니다.
+ *
+ * 신입파티 상태검사가 5초마다 실행되므로
+ * 정상 활동 중에는 약 5초 단위로 누적시간이 저장됩니다.
+ *
+ * Railway 재배포 / 봇 재시작이 발생하더라도
+ * 마지막 체크포인트까지의 활동시간은 유지됩니다.
+ */
+const checkpointProgress =
+  db.prepare(`
+    UPDATE newbie_party_progress
+
+    SET
+      accumulated_seconds =
+        accumulated_seconds +
+        MAX(
+          0,
+          CAST(
+            strftime('%s', 'now')
+            AS INTEGER
+          )
+          -
+          CAST(
+            strftime('%s', running_since)
+            AS INTEGER
+          )
+        ),
+
+      running_since = datetime('now'),
+      updated_at = datetime('now')
+
+    WHERE
+      recruitment_id = ?
+      AND completed = 0
+      AND is_running = 1
+      AND running_since IS NOT NULL
+  `);
+
+
+/*
  * 카운트 정지
  */
 const pauseProgress =
@@ -478,6 +518,40 @@ function startNewbiePartyTimer(
     guildId,
     recruitmentId
   );
+
+
+  const currentProgress =
+    getNewbiePartyProgress(
+      recruitmentId
+    );
+
+
+  /*
+   * 이미 카운트 중이라면
+   * 새로 시작하지 않고 지금까지의 시간을
+   * accumulated_seconds에 중간 저장합니다.
+   *
+   * 이 함수는 전체 신입파티 검사에서
+   * 5초마다 호출되므로 자동 체크포인트 역할을 합니다.
+   */
+  if (
+    currentProgress?.isRunning
+  ) {
+    checkpointProgress.run(
+      recruitmentId
+    );
+
+
+    return {
+      started:
+        false,
+
+      progress:
+        getNewbiePartyProgress(
+          recruitmentId
+        ),
+    };
+  }
 
 
   const result =
