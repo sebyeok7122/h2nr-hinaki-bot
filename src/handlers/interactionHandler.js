@@ -18,6 +18,10 @@ const {
   handleMyPartyInteraction
 } = require('../commands/myParty');
 
+const {
+  handleBulkPointInteraction
+} = require('../commands/pointBulkAdd');
+
 
 async function handleInteraction(
   client,
@@ -120,6 +124,27 @@ async function handleInteraction(
 
     if (
       myPartyHandled
+    ) {
+      return;
+    }
+
+
+    /*
+     * /포인트일괄지급
+     *
+     * 멤버 선택
+     * 추가 선택
+     * 최종 지급
+     * 취소
+     */
+    const bulkPointHandled =
+      await handleBulkPointInteraction(
+        interaction
+      );
+
+
+    if (
+      bulkPointHandled
     ) {
       return;
     }
