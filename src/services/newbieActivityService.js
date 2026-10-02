@@ -223,9 +223,6 @@ const pauseProgress =
 /*
  * 목표시간을 실제로 달성했을 때만
  * 완료 상태를 가져가는 SQL입니다.
- *
- * completed = 0 조건 덕분에
- * 같은 구인을 두 번 완료할 수 없습니다.
  */
 const claimCompletedProgress =
   db.prepare(`
@@ -291,8 +288,16 @@ const claimCompletedProgress =
 
 
 /*
- * 같은 구인 + 같은 멤버로
- * 활동기록이 중복 생성되지 않도록 합니다.
+ * 신입활동은 멤버별 하루 1회만 인정합니다.
+ *
+ * 한국시간(KST) 기준으로 오늘 이미 qualified 활동기록이 있다면
+ * 다른 신입과 또 활동하더라도 추가 기록을 만들지 않습니다.
+ *
+ * 따라서 하루 두 번째 신입파티부터는
+ * - +3P 추가 지급 X
+ * - /신입활동 횟수 추가 X
+ *
+ * 신입이 같은 사람인지 다른 사람인지는 상관없습니다.
  */
 const insertActivityRecord =
   db.prepare(`
@@ -305,7 +310,8 @@ const insertActivityRecord =
       points_awarded,
       completed_at
     )
-    VALUES (
+
+    SELECT
       ?,
       ?,
       ?,
@@ -313,6 +319,29 @@ const insertActivityRecord =
       1,
       0,
       datetime('now')
+
+    WHERE NOT EXISTS (
+      SELECT 1
+
+      FROM newbie_activity
+
+      WHERE
+        guild_id = ?
+        AND user_id = ?
+        AND qualified = 1
+
+        AND date(
+          datetime(
+            completed_at,
+            '+9 hours'
+          )
+        ) =
+        date(
+          datetime(
+            'now',
+            '+9 hours'
+          )
+        )
     )
   `);
 
@@ -530,9 +559,6 @@ function startNewbiePartyTimer(
    * 이미 카운트 중이라면
    * 새로 시작하지 않고 지금까지의 시간을
    * accumulated_seconds에 중간 저장합니다.
-   *
-   * 이 함수는 전체 신입파티 검사에서
-   * 5초마다 호출되므로 자동 체크포인트 역할을 합니다.
    */
   if (
     currentProgress?.isRunning
@@ -613,10 +639,9 @@ function isNewbiePartyGoalReached(
 
 /*
  * 목표시간을 채운 신입파티의
- * 도우미들에게 포인트를 지급합니다.
+ * 도우미들에게 활동기록 / 포인트를 지급합니다.
  *
- * helperUserIds에는
- * 신입을 제외한 멤버만 넘겨줍니다.
+ * 단, 신입활동 인정은 멤버별 하루 1회입니다.
  */
 const completePartyTransaction =
   db.transaction(
@@ -643,7 +668,11 @@ const completePartyTransaction =
           code:
             'NOT_READY_OR_COMPLETED',
 
-          awardedUserIds: [],
+          awardedUserIds:
+            [],
+
+          dailyLimitUserIds:
+            [],
         };
       }
 
@@ -672,26 +701,37 @@ const completePartyTransaction =
 
       const awardedUserIds = [];
 
+      const dailyLimitUserIds = [];
+
 
       for (
         const userId of uniqueHelpers
       ) {
         /*
-         * 먼저 활동기록 자리를 확보합니다.
-         * 이미 존재한다면 포인트를 또 주지 않습니다.
+         * 오늘 처음 인정되는 신입활동일 때만
+         * 활동기록을 새로 만듭니다.
+         *
+         * 이미 오늘 신입활동 기록이 있으면
+         * changes === 0이 되어 포인트도 지급하지 않습니다.
          */
         const activityResult =
           insertActivityRecord.run(
             guildId,
             recruitmentId,
             userId,
-            voiceMinutes
+            voiceMinutes,
+            guildId,
+            userId
           );
 
 
         if (
           activityResult.changes === 0
         ) {
+          dailyLimitUserIds.push(
+            userId
+          );
+
           continue;
         }
 
@@ -748,6 +788,8 @@ const completePartyTransaction =
           'COMPLETED',
 
         awardedUserIds,
+
+        dailyLimitUserIds,
 
         pointsEach:
           RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS,
