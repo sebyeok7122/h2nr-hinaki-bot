@@ -199,6 +199,7 @@ async function sendCompletionMessage(
   guild,
   party,
   awardedUserIds,
+  dailyLimitUserIds,
   pointsEach
 ) {
   try {
@@ -230,13 +231,60 @@ async function sendCompletionMessage(
       );
 
 
+    const dailyLimitLines =
+      dailyLimitUserIds.map(
+        (userId) =>
+          `<@${userId}> 오늘 신입활동 1회 이미 인정됨`
+      );
+
+
     const messageLines = [
       '💚 **신입 파티 활동 완료**',
       '',
-      ...pointLines,
-      '',
-      '신입과 함께해주셔서 감사합니다! 🌱',
     ];
+
+
+    if (
+      pointLines.length > 0
+    ) {
+      messageLines.push(
+        ...pointLines
+      );
+    }
+
+
+    if (
+      dailyLimitLines.length > 0
+    ) {
+      if (
+        pointLines.length > 0
+      ) {
+        messageLines.push('');
+      }
+
+
+      messageLines.push(
+        '🌱 **오늘 신입활동 인정 횟수를 이미 사용한 멤버**',
+        ...dailyLimitLines
+      );
+    }
+
+
+    if (
+      pointLines.length === 0 &&
+      dailyLimitLines.length === 0
+    ) {
+      messageLines.push(
+        '이번 파티는 추가 포인트 지급 대상이 없습니다.'
+      );
+    }
+
+
+    messageLines.push(
+      '',
+      '신입활동 보상은 **1인당 하루 1회**만 적용됩니다.',
+      '신입과 함께해주셔서 감사합니다! 🌱'
+    );
 
 
     await channel.send({
@@ -382,8 +430,13 @@ async function evaluateNewbieParty(
 
   /*
    * 60분 목표 달성.
-   * 현재 [신입] 역할이 없는 기존 멤버에게만
-   * +3P를 지급합니다.
+   *
+   * 현재 [신입] 역할이 없는 기존 멤버 중
+   * 오늘 아직 신입활동을 인정받지 않은 사람에게만
+   * 활동 1회 +3P가 적용됩니다.
+   *
+   * 같은 신입인지 다른 신입인지는 관계없이
+   * 멤버별 하루 최대 1회입니다.
    */
   const helperUserIds =
     await getHelperUserIds(
@@ -428,14 +481,40 @@ async function evaluateNewbieParty(
   }
 
 
+  const dailyLimitNames = [];
+
+
+  for (
+    const userId of
+      completeResult.dailyLimitUserIds || []
+  ) {
+    const name =
+      await getDisplayName(
+        guild,
+        userId
+      );
+
+
+    dailyLimitNames.push(
+      name
+    );
+  }
+
+
   const pointLog =
     awardedNames.length > 0
       ? awardedNames.join(' / ')
       : '지급 대상 없음';
 
 
+  const dailyLimitLog =
+    dailyLimitNames.length > 0
+      ? ` · 하루 1회 제한 제외: ${dailyLimitNames.join(' / ')}`
+      : '';
+
+
   console.log(
-    `💚 [신입활동 완료] 구인 #${party.recruitmentId} · ${formatSeconds(completeResult.progress?.totalSeconds)} · 포인트 지급: ${pointLog}`
+    `💚 [신입활동 완료] 구인 #${party.recruitmentId} · ${formatSeconds(completeResult.progress?.totalSeconds)} · 포인트 지급: ${pointLog}${dailyLimitLog}`
   );
 
 
@@ -443,6 +522,7 @@ async function evaluateNewbieParty(
     guild,
     party,
     completeResult.awardedUserIds,
+    completeResult.dailyLimitUserIds || [],
     completeResult.pointsEach
   );
 }
@@ -550,9 +630,8 @@ async function handleVoiceStateUpdate(
 
 
   /*
-   * 중요:
    * 서버 전체 음성 입장/퇴장/이동 로그는
-   * 더 이상 출력하지 않습니다.
+   * 출력하지 않습니다.
    *
    * 현재 진행 중인 신입파티에 참가 중인
    * 멤버의 변화만 활동 판정에 사용합니다.
