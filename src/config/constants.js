@@ -26,6 +26,19 @@ const ROLE_IDS = {
 
 
 /*
+ * 일반 텍스트 채널
+ */
+const CHANNEL_IDS = {
+  /*
+   * 사진 + 멤버 멘션 후
+   * 운영진 ✅ 승인으로 치킨 포인트를 지급하는 채널
+   */
+  CHICKEN_PROOF:
+    '1554463789481463858',
+};
+
+
+/*
  * 운영 로그 채널
  */
 const LOG_CHANNEL_IDS = {
@@ -111,6 +124,7 @@ const RECRUIT_CONFIG = {
 module.exports = {
   DISCORD_IDS,
   ROLE_IDS,
+  CHANNEL_IDS,
   LOG_CHANNEL_IDS,
   VOICE_CHANNEL_IDS,
   RECRUIT_CONFIG,

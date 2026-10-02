@@ -198,18 +198,6 @@ function initDatabase() {
     /*
      * 신입파티 한 판의
      * 음성 활동시간 진행상황입니다.
-     *
-     * accumulated_seconds:
-     * 지금까지 인정된 누적 시간
-     *
-     * running_since:
-     * 전원이 모여 카운트가 시작된 시각
-     *
-     * is_running:
-     * 현재 시간 누적 중인지 여부
-     *
-     * completed:
-     * 활동 조건을 이미 완료했는지 여부
      */
     CREATE TABLE IF NOT EXISTS newbie_party_progress (
       recruitment_id INTEGER PRIMARY KEY,
@@ -244,11 +232,7 @@ function initDatabase() {
 
 
     /*
-     * 활동 완료 후
-     * 실제 +P 지급을 받은 멤버 기록입니다.
-     *
-     * recruitment_id + user_id가 UNIQUE라서
-     * 같은 파티로 중복 지급할 수 없습니다.
+     * 신입파티 활동 인정 기록
      */
     CREATE TABLE IF NOT EXISTS newbie_activity (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +263,42 @@ function initDatabase() {
       )
       REFERENCES recruitments(id)
       ON DELETE CASCADE
+    );
+
+
+    /*
+     * 치킨인증 게시물 처리 기록
+     *
+     * 같은 게시물에 운영진 여러 명이
+     * 체크 반응을 눌러도 한 번만 처리합니다.
+     */
+    CREATE TABLE IF NOT EXISTS chicken_proof_approvals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      guild_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+
+      approved_by TEXT NOT NULL,
+
+      status TEXT NOT NULL
+        DEFAULT 'PROCESSING'
+        CHECK (
+          status IN (
+            'PROCESSING',
+            'COMPLETED'
+          )
+        ),
+
+      created_at TEXT NOT NULL
+        DEFAULT (datetime('now')),
+
+      completed_at TEXT,
+
+      UNIQUE (
+        guild_id,
+        message_id
+      )
     );
 
 
@@ -407,6 +427,14 @@ function initDatabase() {
 
 
     CREATE INDEX IF NOT EXISTS
+      idx_chicken_proof_approvals_message
+    ON chicken_proof_approvals (
+      guild_id,
+      message_id
+    );
+
+
+    CREATE INDEX IF NOT EXISTS
       idx_shop_purchases_user
     ON shop_purchases (
       guild_id,
@@ -417,11 +445,8 @@ function initDatabase() {
 
 
   /*
-   * 기존에 이미 운영 중인 DB에는
+   * 기존 운영 DB에는
    * recruitments.description 컬럼이 없을 수 있습니다.
-   *
-   * 기존 데이터는 그대로 유지하면서
-   * 설명 컬럼만 안전하게 추가합니다.
    */
   const recruitmentColumns =
     db.prepare(
@@ -453,10 +478,7 @@ function initDatabase() {
 
   /*
    * 봇이 꺼진 동안의 시간은
-   * 활동시간으로 계산하지 않습니다.
-   *
-   * 기존 누적시간은 그대로 보존하고,
-   * 실행 중이던 카운트만 정지 상태로 돌립니다.
+   * 신입파티 활동시간으로 계산하지 않습니다.
    */
   db.prepare(`
     UPDATE newbie_party_progress

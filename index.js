@@ -44,6 +44,10 @@ const {
 } = require('./src/handlers/recruitDeleteHandler');
 
 const {
+  handleChickenProofReaction
+} = require('./src/handlers/chickenProofHandler');
+
+const {
   processExpiredRecruitments
 } = require('./src/services/recruitAutoEndService');
 
@@ -72,12 +76,15 @@ const client =
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildVoiceStates,
-      GatewayIntentBits.GuildMessages
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
+      GatewayIntentBits.MessageContent
     ],
 
     partials: [
       Partials.Message,
-      Partials.Channel
+      Partials.Channel,
+      Partials.Reaction
     ]
   });
 
@@ -108,9 +115,6 @@ const RECRUIT_QUEUE_CHECK_INTERVAL =
 /*
  * 오래된 파티 자동 종료 확인
  * 1분마다
- *
- * 시작 예정 시간 + 6시간이 지난
- * OPEN / FULL 파티를 ENDED 처리합니다.
  */
 const RECRUIT_AUTO_END_CHECK_INTERVAL =
   60 * 1000;
@@ -245,13 +249,7 @@ client.once(
 
 
     /*
-     * ★ 봇 시작 즉시
-     * 오래된 파티를 한 번 정리합니다.
-     *
-     * 지금 /내파티찾기에 쌓여 있는
-     * 예전 테스트 파티들도
-     * 시작 예정 + 6시간이 지났다면
-     * 자동 ENDED 처리됩니다.
+     * 오래된 파티 자동 종료 확인
      */
     void processExpiredRecruitments(
       client
@@ -294,8 +292,7 @@ client.once(
 
 
     /*
-     * ★ 시작 예정 + 6시간이 지난
-     * 파티 자동 종료
+     * 오래된 파티 자동 종료
      */
     setInterval(
       () => {
@@ -349,6 +346,34 @@ client.on(
       oldState,
       newState
     );
+  }
+);
+
+
+/*
+ * 치킨인증 채널
+ *
+ * 운영진이 사진 + 멤버멘션 게시물에
+ * ✅ 반응을 누르면 자동 포인트 처리
+ */
+client.on(
+  'messageReactionAdd',
+  async (
+    reaction,
+    user
+  ) => {
+    try {
+      await handleChickenProofReaction(
+        reaction,
+        user
+      );
+
+    } catch (error) {
+      console.error(
+        '❌ [치킨인증] 반응 처리 오류:',
+        error
+      );
+    }
   }
 );
 
