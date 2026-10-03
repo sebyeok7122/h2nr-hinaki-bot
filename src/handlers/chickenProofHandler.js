@@ -76,8 +76,9 @@ const deleteProcessingApproval =
 /*
  * 한국시간 기준 오늘 이미 치킨 포인트를 받았는지 확인합니다.
  *
- * 기존 수동 지급 기록도 함께 막기 위해
- * CHICKEN_PROOF / NEWBIE_CHICKEN 두 사유를 모두 확인합니다.
+ * 일반 치킨 +1P와
+ * 신입과 치킨 +2P를 합쳐
+ * 하루에 한 번만 지급합니다.
  */
 const selectTodayChickenReward =
   db.prepare(`
@@ -383,7 +384,8 @@ async function handleChickenProofReaction(
 
 
   /*
-   * 운영진 역할이 있는 사람의 ✅만 승인으로 인정합니다.
+   * 운영진 역할이 있는 사람의 ✅만
+   * 승인으로 인정합니다.
    */
   if (
     !staffMember.roles.cache.has(
@@ -428,7 +430,7 @@ async function handleChickenProofReaction(
 
 
   /*
-   * 게시물 자체 중복 승인 방지.
+   * 게시물 자체 중복 승인 방지
    */
   const approvalResult =
     insertApproval.run(
@@ -451,6 +453,81 @@ async function handleChickenProofReaction(
 
 
   try {
+    /*
+     * 포인트를 지급하기 전에
+     * 언급된 모든 멤버의 역할부터 확인합니다.
+     *
+     * 한 사람이라도 정보를 불러오지 못하면
+     * 신입 포함 여부를 잘못 판단할 수 있으므로
+     * 아무에게도 포인트를 지급하지 않습니다.
+     */
+    const targetMembers =
+      new Map();
+
+
+    for (
+      const userId of userIds
+    ) {
+      try {
+        const targetMember =
+          await fetchGuildMember(
+            message.guild,
+            userId
+          );
+
+
+        targetMembers.set(
+          userId,
+          targetMember
+        );
+
+      } catch (error) {
+        deleteProcessingApproval.run(
+          message.guildId,
+          message.id
+        );
+
+
+        console.warn(
+          `⚠️ [치킨인증] 지급 대상 멤버 확인 실패: ${userId}`
+        );
+
+
+        await sendInvalidProofMessage(
+          message,
+          '언급된 멤버 정보를 확인하지 못했어요. 잠시 후 다시 승인해주세요.'
+        );
+
+
+        return;
+      }
+    }
+
+
+    /*
+     * ★ 핵심 규칙
+     *
+     * 언급된 멤버 중 [신입] 역할이
+     * 한 명이라도 있는지 먼저 확인합니다.
+     *
+     * 신입 없음:
+     *   모든 멤버 +1P
+     *
+     * 신입 있음:
+     *   신입 +1P
+     *   기존 멤버 +2P
+     */
+    const hasNewbieInParty =
+      userIds.some(
+        (userId) =>
+          targetMembers
+            .get(userId)
+            ?.roles.cache.has(
+              ROLE_IDS.NEWBIE
+            )
+      );
+
+
     for (
       const userId of userIds
     ) {
@@ -459,8 +536,8 @@ async function handleChickenProofReaction(
 
 
       /*
-       * 다른 인증글이 같은 멤버를 동시에 처리 중이면
-       * 두 번째 요청은 중복으로 취급합니다.
+       * 다른 인증글이 같은 멤버를
+       * 동시에 처리 중이면 중복으로 취급합니다.
        */
       if (
         processingUsers.has(
@@ -503,29 +580,10 @@ async function handleChickenProofReaction(
         }
 
 
-        let targetMember;
-
-
-        try {
-          targetMember =
-            await fetchGuildMember(
-              message.guild,
-              userId
-            );
-
-        } catch (error) {
-          console.warn(
-            `⚠️ [치킨인증] 지급 대상 멤버 확인 실패: ${userId}`
+        const targetMember =
+          targetMembers.get(
+            userId
           );
-
-          results.push({
-            userId,
-            status:
-              'FAILED',
-          });
-
-          continue;
-        }
 
 
         const isNewbie =
@@ -534,22 +592,53 @@ async function handleChickenProofReaction(
           );
 
 
-        const amount =
-          isNewbie
-            ? 1
-            : 2;
+        let amount;
+        let source;
+        let description;
 
 
-        const source =
-          isNewbie
-            ? 'CHICKEN_PROOF'
-            : 'NEWBIE_CHICKEN';
+        /*
+         * 신입이 포함된 파티
+         */
+        if (
+          hasNewbieInParty
+        ) {
+          if (
+            isNewbie
+          ) {
+            amount =
+              1;
 
+            source =
+              'CHICKEN_PROOF';
 
-        const description =
-          isNewbie
-            ? '치킨 인증'
-            : '신입과 치킨 인증';
+            description =
+              '치킨 인증';
+
+          } else {
+            amount =
+              2;
+
+            source =
+              'NEWBIE_CHICKEN';
+
+            description =
+              '신입과 치킨 인증';
+          }
+
+        /*
+         * 신입이 없는 일반 파티
+         */
+        } else {
+          amount =
+            1;
+
+          source =
+            'CHICKEN_PROOF';
+
+          description =
+            '치킨 인증';
+        }
 
 
         const pointResult =
@@ -675,6 +764,7 @@ async function handleChickenProofReaction(
 
     console.log(
       `🍗 [치킨인증] 메시지 ${message.id} · 승인 ${user.username} · ` +
+      `신입포함 ${hasNewbieInParty ? 'YES' : 'NO'} · ` +
       `지급 ${awardedCount}명 · 하루중복 ${duplicateCount}명`
     );
 
