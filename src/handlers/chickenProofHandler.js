@@ -16,6 +16,12 @@ const {
 const CHECK_EMOJI =
   '✅';
 
+const DISCORD_EPOCH =
+  1420070400000n;
+
+const KST_OFFSET_MS =
+  9 * 60 * 60 * 1000;
+
 
 /*
  * 같은 멤버가 여러 인증글에서 거의 동시에 승인될 때도
@@ -74,15 +80,22 @@ const deleteProcessingApproval =
 
 
 /*
- * 한국시간 기준 오늘 이미 치킨 포인트를 받았는지 확인합니다.
+ * 해당 멤버의 기존 치킨 포인트 기록을 가져옵니다.
  *
- * 일반 치킨 +1P와
- * 신입과 치킨 +2P를 합쳐
- * 하루에 한 번만 지급합니다.
+ * 자동 치킨인증:
+ *   reference_id에 인증글 메시지 ID가 저장되어 있으므로
+ *   메시지 작성 날짜를 기준으로 하루 중복을 판단합니다.
+ *
+ * 수동 지급:
+ *   메시지 ID가 없으므로 기존처럼 지급 날짜를 기준으로 판단합니다.
  */
-const selectTodayChickenReward =
+const selectChickenRewardHistory =
   db.prepare(`
-    SELECT 1
+    SELECT
+      source,
+      reference_type,
+      reference_id,
+      created_at
 
     FROM point_transactions
 
@@ -94,21 +107,224 @@ const selectTodayChickenReward =
         'NEWBIE_CHICKEN'
       )
 
-      AND date(
-        datetime(
-          created_at,
-          '+9 hours'
-        )
-      ) =
-      date(
-        datetime(
-          'now',
-          '+9 hours'
-        )
-      )
-
-    LIMIT 1
+    ORDER BY id DESC
   `);
+
+
+/*
+ * UTC timestamp를 한국 날짜 YYYY-MM-DD로 바꿉니다.
+ */
+function getKstDateStringFromTimestamp(
+  timestamp
+) {
+  if (
+    !Number.isFinite(
+      timestamp
+    )
+  ) {
+    return null;
+  }
+
+
+  const kstDate =
+    new Date(
+      timestamp +
+      KST_OFFSET_MS
+    );
+
+
+  if (
+    Number.isNaN(
+      kstDate.getTime()
+    )
+  ) {
+    return null;
+  }
+
+
+  return kstDate
+    .toISOString()
+    .slice(
+      0,
+      10
+    );
+}
+
+
+/*
+ * 치킨 인증글이 작성된 한국 날짜를 가져옵니다.
+ */
+function getProofDateFromMessage(
+  message
+) {
+  return getKstDateStringFromTimestamp(
+    message.createdTimestamp
+  );
+}
+
+
+/*
+ * Discord 메시지 ID(Snowflake)에 들어 있는
+ * 메시지 작성 시간을 한국 날짜로 변환합니다.
+ */
+function getProofDateFromReferenceId(
+  referenceId
+) {
+  if (
+    !referenceId ||
+    !/^\d{17,20}$/.test(
+      String(referenceId)
+    )
+  ) {
+    return null;
+  }
+
+
+  try {
+    const snowflake =
+      BigInt(
+        referenceId
+      );
+
+
+    const timestamp =
+      Number(
+        (
+          snowflake >>
+          22n
+        ) +
+        DISCORD_EPOCH
+      );
+
+
+    return getKstDateStringFromTimestamp(
+      timestamp
+    );
+
+  } catch (error) {
+    return null;
+  }
+}
+
+
+/*
+ * SQLite UTC created_at을 한국 날짜로 변환합니다.
+ */
+function getKstDateFromDatabaseTime(
+  createdAt
+) {
+  if (
+    !createdAt
+  ) {
+    return null;
+  }
+
+
+  const timestamp =
+    new Date(
+      createdAt.replace(
+        ' ',
+        'T'
+      ) + 'Z'
+    ).getTime();
+
+
+  return getKstDateStringFromTimestamp(
+    timestamp
+  );
+}
+
+
+/*
+ * 한 포인트 기록이 실제로 어느 날짜의
+ * 치킨 인증인지 판단합니다.
+ *
+ * 자동 치킨인증이면:
+ *   인증글 메시지 작성일
+ *
+ * 수동 지급이면:
+ *   실제 지급일
+ */
+function getChickenRewardDate(
+  transaction
+) {
+  if (
+    transaction.reference_type ===
+      'CHICKEN_PROOF'
+  ) {
+    const proofDate =
+      getProofDateFromReferenceId(
+        transaction.reference_id
+      );
+
+
+    if (
+      proofDate
+    ) {
+      return proofDate;
+    }
+  }
+
+
+  return getKstDateFromDatabaseTime(
+    transaction.created_at
+  );
+}
+
+
+/*
+ * 해당 인증 날짜에 이미 치킨 포인트를
+ * 받은 적이 있는지 확인합니다.
+ */
+function hasChickenRewardForDate(
+  guildId,
+  userId,
+  proofDate
+) {
+  const history =
+    selectChickenRewardHistory.all(
+      guildId,
+      userId
+    );
+
+
+  return history.some(
+    (transaction) =>
+      getChickenRewardDate(
+        transaction
+      ) ===
+      proofDate
+  );
+}
+
+
+/*
+ * YYYY-MM-DD를 보기 좋은 한국 날짜로 바꿉니다.
+ */
+function formatProofDate(
+  proofDate
+) {
+  const parts =
+    String(
+      proofDate || ''
+    ).split(
+      '-'
+    );
+
+
+  if (
+    parts.length !== 3
+  ) {
+    return proofDate ||
+      '해당 날짜';
+  }
+
+
+  return (
+    `${Number(parts[1])}월 ` +
+    `${Number(parts[2])}일`
+  );
+}
 
 
 function hasImageAttachment(
@@ -240,10 +456,18 @@ async function sendInvalidProofMessage(
 
 async function sendResultMessage(
   message,
-  results
+  results,
+  proofDate
 ) {
+  const displayDate =
+    formatProofDate(
+      proofDate
+    );
+
+
   const lines = [
     '**🍗 오늘 저녁은 치킨이닭! 희낙이봇 포인트 적립!**',
+    `📅 인증 기준일: **${displayDate}**`,
   ];
 
 
@@ -265,7 +489,7 @@ async function sendResultMessage(
       result.status === 'DUPLICATE'
     ) {
       lines.push(
-        `<@${result.userId}> — 오늘 이미 인증 완료`
+        `<@${result.userId}> — ${displayDate} 이미 인증 완료`
       );
 
       continue;
@@ -279,7 +503,7 @@ async function sendResultMessage(
 
 
   lines.push(
-    '**🐶 치킨 포인트는 하루 1번만 받을 수 있어요! 중복 언급은 자동 제외됩니다 🐶**'
+    '**🐶 치킨 포인트는 인증글 작성일 기준 하루 1번만 받을 수 있어요! 중복 언급은 자동 제외됩니다 🐶**'
   );
 
 
@@ -384,8 +608,7 @@ async function handleChickenProofReaction(
 
 
   /*
-   * 운영진 역할이 있는 사람의 ✅만
-   * 승인으로 인정합니다.
+   * 운영진 역할이 있는 사람의 ✅만 승인으로 인정합니다.
    */
   if (
     !staffMember.roles.cache.has(
@@ -423,6 +646,29 @@ async function handleChickenProofReaction(
     await sendInvalidProofMessage(
       message,
       '포인트를 받을 **멤버를 한 명 이상 언급**해주세요.'
+    );
+
+    return;
+  }
+
+
+  /*
+   * 포인트 지급 날짜는
+   * 운영진이 체크한 시간이 아니라
+   * 인증글이 올라온 한국 날짜를 기준으로 합니다.
+   */
+  const proofDate =
+    getProofDateFromMessage(
+      message
+    );
+
+
+  if (
+    !proofDate
+  ) {
+    await sendInvalidProofMessage(
+      message,
+      '인증글 작성 날짜를 확인하지 못했어요. 잠시 후 다시 시도해주세요.'
     );
 
     return;
@@ -505,7 +751,7 @@ async function handleChickenProofReaction(
 
 
     /*
-     * ★ 핵심 규칙
+     * ★ 치킨 포인트 규칙
      *
      * 언급된 멤버 중 [신입] 역할이
      * 한 명이라도 있는지 먼저 확인합니다.
@@ -560,10 +806,17 @@ async function handleChickenProofReaction(
 
 
       try {
+        /*
+         * ★ 하루 1회 기준
+         *
+         * 운영진이 ✅ 누른 날짜가 아니라
+         * 인증글 작성 날짜를 기준으로 확인합니다.
+         */
         const alreadyRewarded =
-          selectTodayChickenReward.get(
+          hasChickenRewardForDate(
             message.guildId,
-            userId
+            userId,
+            proofDate
           );
 
 
@@ -729,7 +982,8 @@ async function handleChickenProofReaction(
     try {
       await sendResultMessage(
         message,
-        results
+        results,
+        proofDate
       );
 
     } catch (error) {
@@ -763,9 +1017,10 @@ async function handleChickenProofReaction(
 
 
     console.log(
-      `🍗 [치킨인증] 메시지 ${message.id} · 승인 ${user.username} · ` +
+      `🍗 [치킨인증] 메시지 ${message.id} · 인증일 ${proofDate} · ` +
+      `승인 ${user.username} · ` +
       `신입포함 ${hasNewbieInParty ? 'YES' : 'NO'} · ` +
-      `지급 ${awardedCount}명 · 하루중복 ${duplicateCount}명`
+      `지급 ${awardedCount}명 · 날짜중복 ${duplicateCount}명`
     );
 
   } catch (error) {
