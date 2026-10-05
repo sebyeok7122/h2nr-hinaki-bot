@@ -59,7 +59,7 @@ function formatCreatedAt(
     );
 
 
-  return `<t:${unix}:g>`;
+  return `<t:${unix}:f>`;
 }
 
 
