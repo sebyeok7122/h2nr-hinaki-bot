@@ -1,39 +1,12 @@
+
 const {
   SlashCommandBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder
+  MessageFlags
 } = require('discord.js');
 
 const {
-  createSetupSession,
-  updateSetupSession
+  createSetupSession
 } = require('../../services/recruitSetupService');
-
-
-function buildHourOptions() {
-  const options = [];
-
-  for (
-    let hour = 0;
-    hour < 24;
-    hour += 1
-  ) {
-    const value =
-      String(hour).padStart(
-        2,
-        '0'
-      );
-
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel(`${value}시`)
-        .setValue(value)
-    );
-  }
-
-  return options;
-}
 
 
 module.exports = {
@@ -41,115 +14,52 @@ module.exports = {
     .setName('듀오구인')
     .setDescription(
       '듀오 구인을 생성합니다.'
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버1')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(true)
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버2')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(false)
     ),
 
-
   async execute(interaction) {
-    const selectedUsers = [
-      interaction.options.getUser(
-        '멤버1',
-        true
-      ),
-
-      interaction.options.getUser(
-        '멤버2'
-      ),
-    ].filter(Boolean);
-
-
-    const memberIds = [
-      ...new Set(
-        selectedUsers.map(
-          (user) => user.id
-        )
-      ),
-    ];
-
-
-    createSetupSession({
-      guildId:
-        interaction.guildId,
-
-      userId:
-        interaction.user.id,
-
-      type:
-        'DUO',
-
-      capacity:
-        2,
-
-      voiceKind:
-        'DUO',
-    });
-
-
-    updateSetupSession(
-      interaction.guildId,
-      interaction.user.id,
-      {
-        memberIds,
-      }
-    );
-
-
-    const mentions =
-      memberIds
-        .map(
-          (id) => `<@${id}>`
-        )
-        .join(' ');
-
-
-    const hourSelect =
-      new StringSelectMenuBuilder()
-        .setCustomId(
-          'recruit_setup_hour'
-        )
-        .setPlaceholder(
-          '시작 예정 시간을 선택해주세요'
-        )
-        .addOptions(
-          buildHourOptions()
-        );
-
-
-    const row =
-      new ActionRowBuilder()
-        .addComponents(
-          hourSelect
-        );
-
-
+    /*
+     * 먼저 개인 안내 메시지를 전송합니다.
+     */
     await interaction.reply({
       content:
         '💕 **듀오 구인 설정**\n\n' +
-        `✅ 현재 멤버: ${mentions}\n\n` +
-        '② 시작 예정 **시간**을 선택해주세요.',
+        '👥 **함께할 멤버를 멘션해주세요!**\n\n' +
+        '현재 구인 채널에 멤버를 한 번에 멘션해주세요.\n\n' +
+        '예시: `@새벽 @상디`\n\n' +
+        '✅ 듀오는 최대 **2명**까지 등록할 수 있어요.\n' +
+        '✅ 파티장도 참여한다면 본인도 멘션해주세요.\n' +
+        '✅ 멤버 등록 후 **듀오방 선택**으로 넘어갑니다.\n\n' +
+        '⏰ **10분 안에 입력해주세요.**',
 
-      components: [row],
+      flags: MessageFlags.Ephemeral,
 
-      ephemeral: true,
+      allowedMentions: {
+        parse: []
+      }
     });
-  },
+
+    /*
+     * 새로운 구인 설정 세션
+     *
+     * 멤버 멘션
+     * → 듀오방 선택
+     * → 파티 설명
+     * → 구인 생성
+     */
+    createSetupSession({
+      guildId: interaction.guildId,
+      userId: interaction.user.id,
+
+      type: 'DUO',
+      capacity: 2,
+      voiceKind: 'DUO',
+
+      channelId: interaction.channelId,
+      sourceInteraction: interaction
+    });
+
+    console.log(
+      `💕 [듀오구인] ${interaction.user.id} · 멤버 입력 대기`
+    );
+  }
 };

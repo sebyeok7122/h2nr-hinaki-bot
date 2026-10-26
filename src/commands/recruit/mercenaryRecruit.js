@@ -1,43 +1,16 @@
+
 const {
   SlashCommandBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder
+  MessageFlags
 } = require('discord.js');
 
 const {
-  createSetupSession,
-  updateSetupSession
+  createSetupSession
 } = require('../../services/recruitSetupService');
 
 const {
-  ROLE_IDS
+  RECRUIT_CONFIG
 } = require('../../config/constants');
-
-
-function buildHourOptions() {
-  const options = [];
-
-  for (
-    let hour = 0;
-    hour < 24;
-    hour += 1
-  ) {
-    const value =
-      String(hour).padStart(
-        2,
-        '0'
-      );
-
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel(`${value}시`)
-        .setValue(value)
-    );
-  }
-
-  return options;
-}
 
 
 module.exports = {
@@ -45,179 +18,54 @@ module.exports = {
     .setName('용병구인')
     .setDescription(
       '용병과 함께하는 스쿼드 구인을 생성합니다.'
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버1')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(true)
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버2')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(false)
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버3')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(false)
-    )
-
-    .addUserOption(
-      (option) =>
-        option
-          .setName('멤버4')
-          .setDescription(
-            '현재 함께 있는 멤버'
-          )
-          .setRequired(false)
     ),
 
-
   async execute(interaction) {
-    const selectedUsers = [
-      interaction.options.getUser(
-        '멤버1',
-        true
-      ),
-
-      interaction.options.getUser(
-        '멤버2'
-      ),
-
-      interaction.options.getUser(
-        '멤버3'
-      ),
-
-      interaction.options.getUser(
-        '멤버4'
-      ),
-    ].filter(Boolean);
-
-
-    const memberIds = [
-      ...new Set(
-        selectedUsers.map(
-          (user) => user.id
-        )
-      ),
-    ];
-
-
-    let hasMercenary = false;
-
-    for (
-      const userId of memberIds
-    ) {
-      const member =
-        await interaction.guild.members.fetch(
-          userId
-        );
-
-      if (
-        member.roles.cache.has(
-          ROLE_IDS.MERCENARY
-        )
-      ) {
-        hasMercenary = true;
-        break;
-      }
-    }
-
-
-    if (!hasMercenary) {
-      await interaction.reply({
-        content:
-          '⚠️ **용병이 포함되어 있지 않습니다** ⚠️\n\n' +
-          '용병구인은 용병 역할을 가진 멤버가 최소 1명 포함되어야 생성할 수 있어요.\n' +
-          '용병을 포함한 뒤 다시 생성해주세요!',
-
-        ephemeral: true,
-      });
-
-      return;
-    }
-
-
-    createSetupSession({
-      guildId:
-        interaction.guildId,
-
-      userId:
-        interaction.user.id,
-
-      type:
-        'MERCENARY',
-
-      capacity:
-        4,
-
-      voiceKind:
-        'MERCENARY',
-    });
-
-
-    updateSetupSession(
-      interaction.guildId,
-      interaction.user.id,
-      {
-        memberIds,
-      }
-    );
-
-
-    const mentions =
-      memberIds
-        .map(
-          (id) => `<@${id}>`
-        )
-        .join(' ');
-
-
-    const hourSelect =
-      new StringSelectMenuBuilder()
-        .setCustomId(
-          'recruit_setup_hour'
-        )
-        .setPlaceholder(
-          '시작 예정 시간을 선택해주세요'
-        )
-        .addOptions(
-          buildHourOptions()
-        );
-
-
-    const row =
-      new ActionRowBuilder()
-        .addComponents(
-          hourSelect
-        );
-
-
+    /*
+     * 먼저 Discord interaction에 응답
+     */
     await interaction.reply({
       content:
         '🪖 **용병 구인 설정**\n\n' +
-        `✅ 현재 멤버: ${mentions}\n` +
-        '✅ 용병 역할 확인 완료\n\n' +
-        '② 시작 예정 **시간**을 선택해주세요.',
+        '👥 **함께할 멤버를 멘션해주세요!**\n\n' +
+        '현재 구인 채널에서 멤버를 한 번에 멘션해주세요.\n\n' +
+        '예시: `@새벽 @상디 @용병`\n\n' +
+        '✅ 최대 **4명**까지 등록할 수 있어요.\n' +
+        '✅ **용병 역할을 가진 멤버가 최소 1명 필요해요.**\n' +
+        '✅ 파티장도 참여한다면 본인도 멘션해주세요.\n' +
+        '✅ 멤버 입력 후 **용병방 선택**으로 넘어갑니다.\n\n' +
+        '⏰ **10분 안에 입력해주세요.**',
 
-      components: [row],
+      flags: MessageFlags.Ephemeral,
 
-      ephemeral: true,
+      allowedMentions: {
+        parse: []
+      }
     });
-  },
+
+    /*
+     * 용병구인 설정 시작
+     *
+     * 멤버 직접 멘션
+     * → 용병 역할 확인
+     * → 용병방 선택
+     * → 파티 설명
+     * → 구인 생성
+     */
+    createSetupSession({
+      guildId: interaction.guildId,
+      userId: interaction.user.id,
+
+      type: 'MERCENARY',
+      capacity: RECRUIT_CONFIG.MERCENARY_CAPACITY,
+      voiceKind: 'MERCENARY',
+
+      channelId: interaction.channelId,
+      sourceInteraction: interaction
+    });
+
+    console.log(
+      `🪖 [용병구인] ${interaction.user.id} · 멤버 입력 대기`
+    );
+  }
 };
