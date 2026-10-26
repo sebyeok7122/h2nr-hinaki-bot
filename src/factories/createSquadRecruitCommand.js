@@ -1,41 +1,25 @@
+
 const {
   SlashCommandBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder
+  MessageFlags
 } = require('discord.js');
 
 const {
-  createSetupSession,
-  updateSetupSession
+  createSetupSession
 } = require('../services/recruitSetupService');
 
 
-function buildHourOptions() {
-  const options = [];
-
-  for (
-    let hour = 0;
-    hour < 24;
-    hour += 1
-  ) {
-    const value =
-      String(hour).padStart(
-        2,
-        '0'
-      );
-
-    options.push(
-      new StringSelectMenuOptionBuilder()
-        .setLabel(`${value}시`)
-        .setValue(value)
-    );
-  }
-
-  return options;
-}
-
-
+/*
+ * 일반 / 경쟁 / 빡겜 구인 공통 명령어
+ *
+ * 새로운 생성 순서:
+ * 1. 멤버 멘션 입력
+ * 2. 음성방 선택
+ * 3. 파티 설명 작성
+ * 4. 구인 생성
+ *
+ * 시간 선택 및 멤버1~4 옵션 제거
+ */
 function createSquadRecruitCommand({
   name,
   description,
@@ -45,79 +29,38 @@ function createSquadRecruitCommand({
   return {
     data: new SlashCommandBuilder()
       .setName(name)
-      .setDescription(description)
-
-      .addUserOption(
-        (option) =>
-          option
-            .setName('멤버1')
-            .setDescription(
-              '현재 함께 있는 멤버'
-            )
-            .setRequired(true)
-      )
-
-      .addUserOption(
-        (option) =>
-          option
-            .setName('멤버2')
-            .setDescription(
-              '현재 함께 있는 멤버'
-            )
-            .setRequired(false)
-      )
-
-      .addUserOption(
-        (option) =>
-          option
-            .setName('멤버3')
-            .setDescription(
-              '현재 함께 있는 멤버'
-            )
-            .setRequired(false)
-      )
-
-      .addUserOption(
-        (option) =>
-          option
-            .setName('멤버4')
-            .setDescription(
-              '현재 함께 있는 멤버'
-            )
-            .setRequired(false)
-      ),
-
+      .setDescription(description),
 
     async execute(interaction) {
-      const selectedUsers = [
-        interaction.options.getUser(
-          '멤버1',
-          true
-        ),
+      /*
+       * 먼저 디스코드에 응답합니다.
+       * interaction 응답 지연 방지
+       */
+      await interaction.reply({
+        content:
+          `${title} **설정**\n\n` +
+          '👥 **함께할 멤버를 멘션해주세요!**\n\n' +
+          '지금 구인 채널에 함께할 멤버를 한 번에 멘션해주세요.\n\n' +
+          '예시: `@새벽 @상디 @혜진`\n\n' +
+          '✅ 멤버는 최대 **4명**까지 등록할 수 있습니다.\n' +
+          '✅ 파티장도 참여한다면 본인을 함께 멘션해주세요.\n' +
+          '✅ 멤버 입력 후 **음성방 선택**으로 넘어갑니다.\n\n' +
+          '⏰ **10분 안에 입력해주세요.**',
 
-        interaction.options.getUser(
-          '멤버2'
-        ),
+        flags:
+          MessageFlags.Ephemeral,
 
-        interaction.options.getUser(
-          '멤버3'
-        ),
+        allowedMentions: {
+          parse: []
+        }
+      });
 
-        interaction.options.getUser(
-          '멤버4'
-        ),
-      ].filter(Boolean);
-
-
-      const memberIds = [
-        ...new Set(
-          selectedUsers.map(
-            (user) => user.id
-          )
-        ),
-      ];
-
-
+      /*
+       * 현재 구인 설정 상태 저장
+       *
+       * 멤버 멘션을 감지할 때
+       * 채널 / 사용자 / 구인 종류를 확인합니다.
+       */
       createSetupSession({
         guildId:
           interaction.guildId,
@@ -127,65 +70,27 @@ function createSquadRecruitCommand({
 
         type,
 
-        capacity: 4,
+        capacity:
+          4,
 
         voiceKind:
           'SQUAD',
+
+        channelId:
+          interaction.channelId,
+
+        sourceInteraction:
+          interaction
       });
 
-
-      updateSetupSession(
-        interaction.guildId,
-        interaction.user.id,
-        {
-          memberIds,
-        }
+      console.log(
+        `🎮 [구인설정] ${interaction.user.id} · ${name} · 멤버 입력 대기`
       );
-
-
-      const mentions =
-        memberIds
-          .map(
-            (id) => `<@${id}>`
-          )
-          .join(' ');
-
-
-      const hourSelect =
-        new StringSelectMenuBuilder()
-          .setCustomId(
-            'recruit_setup_hour'
-          )
-          .setPlaceholder(
-            '시작 예정 시간을 선택해주세요'
-          )
-          .addOptions(
-            buildHourOptions()
-          );
-
-
-      const row =
-        new ActionRowBuilder()
-          .addComponents(
-            hourSelect
-          );
-
-
-      await interaction.reply({
-        content:
-          `${title} **설정**\n\n` +
-          `✅ 현재 멤버: ${mentions}\n\n` +
-          '② 시작 예정 **시간**을 선택해주세요.',
-
-        components: [row],
-
-        ephemeral: true,
-      });
-    },
+    }
   };
 }
 
 
 module.exports = {
-  createSquadRecruitCommand,
+  createSquadRecruitCommand
 };
