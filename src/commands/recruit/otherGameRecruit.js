@@ -16,9 +16,6 @@ module.exports = {
       '종합게임 구인을 생성합니다.'
     )
 
-    /*
-     * 게임명 입력은 유지
-     */
     .addStringOption(
       (option) =>
         option
@@ -30,9 +27,6 @@ module.exports = {
           .setMaxLength(50)
     )
 
-    /*
-     * 정원 선택은 유지
-     */
     .addIntegerOption(
       (option) =>
         option
@@ -64,21 +58,20 @@ module.exports = {
       interaction.options
         .getInteger('정원', true);
 
-    /*
-     * 먼저 개인 안내 메시지를 전송합니다.
-     */
     await interaction.reply({
       content:
-        '🎮 **종겜 구인 설정**\n\n' +
+        '🎮 **종겜 구인 설정**\n' +
         `🎲 게임: **${gameName}**\n` +
         `👥 정원: **${capacity}명**\n\n` +
-        '👥 **함께할 멤버를 멘션해주세요!**\n\n' +
-        '현재 구인 채널에 함께할 멤버를 한 번에 멘션해주세요.\n\n' +
-        '예시: `@새벽 @상디 @혜진`\n\n' +
-        `✅ 최대 **${capacity}명**까지 등록할 수 있어요.\n` +
-        '✅ 파티장도 참여한다면 본인도 멘션해주세요.\n' +
-        '✅ 멤버 입력 후 **종겜방 선택**으로 넘어갑니다.\n\n' +
-        '⏰ **10분 안에 입력해주세요.**',
+
+        '① 지금 보고 계신 **구인 채널의 채팅 입력창**을 눌러주세요.\n' +
+        '② 함께할 멤버를 `@멘션` 후 **Enter를 눌러 메시지를 전송**하면 끝!\n' +
+        '📝 예시: @상디 @새벽 @홍이\n\n' +
+
+        `✅ 최대 ${capacity}명까지 등록 가능 파티장도 참여한다면 본인 포함\n` +
+        '✅ 멘션 전송 후 **자동으로 방 선택 화면으로 이동**\n\n' +
+
+        '⏰ **10분 안에 입력해주세요!**',
 
       flags: MessageFlags.Ephemeral,
 
@@ -87,14 +80,6 @@ module.exports = {
       }
     });
 
-    /*
-     * 종겜 구인 설정 시작
-     *
-     * 멤버 직접 멘션
-     * → 종겜방 선택
-     * → 파티 설명
-     * → 구인 생성
-     */
     createSetupSession({
       guildId: interaction.guildId,
       userId: interaction.user.id,
