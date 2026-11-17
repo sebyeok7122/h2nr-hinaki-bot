@@ -3,6 +3,10 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
+const {
+  RECRUIT_CONFIG
+} = require('../config/constants');
+
 
 module.exports = {
   data:
@@ -41,8 +45,9 @@ module.exports = {
             '',
             '━━━━━━━━━━━━━━━━━━',
             '',
-            '🌱 신입과 함께하는 파티 활동 등',
-            '일부 포인트는 희낙이가 자동으로 지급해요!',
+            `🌱 **신입 파티 활동 완료**　기존 멤버 \`+${RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS}P\` / 신입 \`+${RECRUIT_CONFIG.NEWBIE_PARTICIPATION_POINTS}P\``,
+            '신입 파티 활동 보상은 **1인당 하루 1회** 자동 지급돼요.',
+            `💛 신입은 **${RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS}P** 달성 시 정식 멤버로 자동등업돼요!`,
           ].join('\n')
         );
 

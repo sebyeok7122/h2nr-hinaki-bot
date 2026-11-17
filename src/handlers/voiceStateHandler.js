@@ -1,5 +1,6 @@
 const {
   DISCORD_IDS,
+  RECRUIT_CONFIG,
   ROLE_IDS,
   VOICE_CHANNEL_IDS
 } = require('../config/constants');
@@ -12,7 +13,8 @@ const {
   startNewbiePartyTimer,
   pauseNewbiePartyTimer,
 
-  completeNewbieParty
+  completeNewbieParty,
+  promoteAwardedNewbies
 } = require('../services/newbieActivityService');
 
 
@@ -146,11 +148,12 @@ async function getPartyMemberNames(
 }
 
 
-async function getHelperUserIds(
+async function getRewardParticipants(
   guild,
   party
 ) {
   const helperUserIds = [];
+  const newbieUserIds = [];
 
 
   for (
@@ -166,22 +169,11 @@ async function getHelperUserIds(
         );
 
 
-      /*
-       * 완료 시점에도 [신입] 역할을
-       * 가지고 있는 사람은 +3P 대상에서 제외합니다.
-       */
-      if (
-        member.roles.cache.has(
-          ROLE_IDS.NEWBIE
-        )
-      ) {
-        continue;
+      if (member.roles.cache.has(ROLE_IDS.NEWBIE)) {
+        newbieUserIds.push(userId);
+      } else {
+        helperUserIds.push(userId);
       }
-
-
-      helperUserIds.push(
-        userId
-      );
 
     } catch (error) {
       console.warn(
@@ -191,16 +183,16 @@ async function getHelperUserIds(
   }
 
 
-  return helperUserIds;
+  return { helperUserIds, newbieUserIds };
 }
 
 
 async function sendCompletionMessage(
   guild,
   party,
-  awardedUserIds,
+  awards,
   dailyLimitUserIds,
-  pointsEach
+  promotedUserIds
 ) {
   try {
     const channel =
@@ -225,9 +217,9 @@ async function sendCompletionMessage(
 
 
     const pointLines =
-      awardedUserIds.map(
-        (userId) =>
-          `<@${userId}> +${pointsEach}P`
+      awards.map(
+        ({ userId, points }) =>
+          `<@${userId}> +${points}P`
       );
 
 
@@ -280,6 +272,14 @@ async function sendCompletionMessage(
     }
 
 
+    if (promotedUserIds.length > 0) {
+      const mentions = promotedUserIds.map((userId) => `<@${userId}>`).join(' ');
+      messageLines.push(
+        '',
+        `🎉 ${mentions}님 **${RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS}P 달성!** 정식 멤버가 되신 걸 축하해요!`
+      );
+    }
+
     messageLines.push(
       '',
       '신입활동 보상은 **1인당 하루 1회**만 적용됩니다.',
@@ -293,7 +293,7 @@ async function sendCompletionMessage(
 
       allowedMentions: {
         users:
-          awardedUserIds,
+          awards.map(({ userId }) => userId),
       },
     });
 
@@ -428,28 +428,14 @@ async function evaluateNewbieParty(
   }
 
 
-  /*
-   * 60분 목표 달성.
-   *
-   * 현재 [신입] 역할이 없는 기존 멤버 중
-   * 오늘 아직 신입활동을 인정받지 않은 사람에게만
-   * 활동 1회 +3P가 적용됩니다.
-   *
-   * 같은 신입인지 다른 신입인지는 관계없이
-   * 멤버별 하루 최대 1회입니다.
-   */
-  const helperUserIds =
-    await getHelperUserIds(
-      guild,
-      party
-    );
-
+  const participants =
+    await getRewardParticipants(guild, party);
 
   const completeResult =
     completeNewbieParty(
       party.guildId,
       party.recruitmentId,
-      helperUserIds
+      participants
     );
 
 
@@ -465,8 +451,8 @@ async function evaluateNewbieParty(
 
 
   for (
-    const userId of
-      completeResult.awardedUserIds
+    const { userId, points } of
+      completeResult.awards
   ) {
     const name =
       await getDisplayName(
@@ -476,7 +462,7 @@ async function evaluateNewbieParty(
 
 
     awardedNames.push(
-      `${name} +${completeResult.pointsEach}P`
+      `${name} +${points}P`
     );
   }
 
@@ -518,12 +504,15 @@ async function evaluateNewbieParty(
   );
 
 
+  const promotedUserIds =
+    await promoteAwardedNewbies(guild, completeResult.awards);
+
   await sendCompletionMessage(
     guild,
     party,
-    completeResult.awardedUserIds,
-    completeResult.dailyLimitUserIds || [],
-    completeResult.pointsEach
+    completeResult.awards,
+    completeResult.dailyLimitUserIds,
+    promotedUserIds
   );
 }
 
