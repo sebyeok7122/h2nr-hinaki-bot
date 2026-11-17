@@ -362,7 +362,7 @@ function getRecentPointTransactions(
 
 
 /*
- * 10P 이상이 된 신입을
+ * 자동등업 기준에 도달한 신입을
  * 멤버로 자동 승급합니다.
  *
  * 포인트가 나중에 줄어들더라도
@@ -379,10 +379,10 @@ async function promoteNewbieIfEligible(
     );
 
 
-  if (
-    balance <
-    RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS
-  ) {
+  const threshold =
+    RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS;
+
+  if (balance < threshold) {
     return {
       code:
         'NOT_ELIGIBLE',
@@ -468,7 +468,7 @@ async function promoteNewbieIfEligible(
     ) {
       await member.roles.add(
         ROLE_IDS.MEMBER,
-        '희낙이 포인트 10P 자동등업'
+        `희낙이 포인트 ${threshold}P 자동등업`
       );
     }
 
@@ -479,7 +479,7 @@ async function promoteNewbieIfEligible(
      */
     await member.roles.remove(
       ROLE_IDS.NEWBIE,
-      '희낙이 포인트 10P 자동등업'
+      `희낙이 포인트 ${threshold}P 자동등업`
     );
 
   } catch (error) {
@@ -498,7 +498,7 @@ async function promoteNewbieIfEligible(
     userId,
     ROLE_IDS.NEWBIE,
     ROLE_IDS.MEMBER,
-    RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS
+    threshold
   );
 
 
@@ -508,8 +508,7 @@ async function promoteNewbieIfEligible(
 
     balance,
 
-    threshold:
-      RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS,
+    threshold,
   };
 }
 

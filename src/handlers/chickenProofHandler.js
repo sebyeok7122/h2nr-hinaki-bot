@@ -1,4 +1,5 @@
 const {
+  RECRUIT_CONFIG,
   ROLE_IDS,
   CHANNEL_IDS
 } = require('../config/constants');
@@ -540,7 +541,7 @@ async function sendPromotionMessage(
 
     await message.channel.send({
       content:
-        `🎉 ${mentions.join(' ')}님이 **10P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
+        `🎉 ${mentions.join(' ')}님이 **${RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS}P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
         '희희낙락 정식 멤버가 되신 걸 축하드립니다 💛',
 
       allowedMentions: {

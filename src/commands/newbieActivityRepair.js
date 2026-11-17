@@ -15,7 +15,8 @@ const {
 const {
   ensureNewbiePartyProgress,
   getNewbiePartyProgress,
-  completeNewbieParty
+  completeNewbieParty,
+  promoteAwardedNewbies
 } = require('../services/newbieActivityService');
 
 
@@ -236,13 +237,9 @@ module.exports = {
     }
 
 
-    /*
-     * 현재 Discord 역할을 확인하여
-     * [신입] 역할이 없는 참가자만
-     * +3P 대상자로 선정합니다.
-     */
+    // 자동 처리와 동일하게 현재 Discord 역할을 보상 기준으로 사용합니다.
     const helperUserIds = [];
-
+    const newbieUserIds = [];
 
     for (
       const userId of memberIds
@@ -283,23 +280,16 @@ module.exports = {
       }
 
 
-      if (
-        member.roles.cache.has(
-          ROLE_IDS.NEWBIE
-        )
-      ) {
-        continue;
+      if (member.roles.cache.has(ROLE_IDS.NEWBIE)) {
+        newbieUserIds.push(userId);
+      } else {
+        helperUserIds.push(userId);
       }
-
-
-      helperUserIds.push(
-        userId
-      );
     }
 
 
     /*
-     * 실제 60분 이상 활동했음을
+     * 실제 목표 시간 이상 활동했음을
      * 운영진이 확인하고 실행하는 명령어이므로
      * 목표시간까지 DB 기록을 보정합니다.
      */
@@ -310,15 +300,7 @@ module.exports = {
     );
 
 
-    /*
-     * 기존 자동 완료 로직을 그대로 사용합니다.
-     *
-     * 따라서
-     * - newbie_activity 활동기록 생성
-     * - +3P 지급
-     * - 중복 지급 방지
-     * 가 모두 동일하게 적용됩니다.
-     */
+    // 자동 완료와 같은 트랜잭션을 사용해 역할별 지급과 중복 제한을 적용합니다.
     let result;
 
 
@@ -327,7 +309,7 @@ module.exports = {
         completeNewbieParty(
           interaction.guildId,
           recruitmentId,
-          helperUserIds
+          { helperUserIds, newbieUserIds }
         );
 
     } catch (error) {
@@ -367,12 +349,7 @@ module.exports = {
     }
 
 
-    const awardedMentions =
-      result.awardedUserIds.map(
-        (userId) =>
-          `<@${userId}>`
-      );
-
+    const promotedUserIds = await promoteAwardedNewbies(interaction.guild, result.awards);
 
     const lines = [
       '💚 **신입파티 활동 보정 완료**',
@@ -384,20 +361,23 @@ module.exports = {
     ];
 
 
-    if (
-      awardedMentions.length > 0
-    ) {
-      lines.push(
-        `💎 +${result.pointsEach}P 지급:`,
-        awardedMentions.join(' ')
-      );
-
+    if (result.awards.length > 0) {
+      lines.push(...result.awards.map(
+        ({ userId, points }) => `💎 <@${userId}> **+${points}P** 지급`
+      ));
     } else {
-      lines.push(
-        '💎 포인트 지급 대상 기존 멤버가 없습니다.'
-      );
+      lines.push('💎 포인트 지급 대상이 없습니다.');
     }
 
+    if (result.dailyLimitUserIds.length > 0) {
+      const mentions = result.dailyLimitUserIds.map((userId) => `<@${userId}>`).join(' ');
+      lines.push(`🌱 오늘 이미 지급받아 제외: ${mentions}`);
+    }
+
+    if (promotedUserIds.length > 0) {
+      const mentions = promotedUserIds.map((userId) => `<@${userId}>`).join(' ');
+      lines.push(`🎉 ${mentions} **${RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS}P 달성!** 신입 → 멤버 자동등업 완료`);
+    }
 
     lines.push(
       '',
@@ -422,7 +402,7 @@ module.exports = {
     console.log(
       `🛠️ [신입활동 보정] 구인 #${recruitmentId} · ` +
       `운영진 ${interaction.user.username} · ` +
-      `+${result.pointsEach}P ${result.awardedUserIds.length}명`
+      `포인트 지급: ${result.awards.map(({ userId, points }) => `${userId} +${points}P`).join(' / ') || '없음'}`
     );
   },
 };

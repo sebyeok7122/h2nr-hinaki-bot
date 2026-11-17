@@ -7,6 +7,7 @@ const {
 } = require('discord.js');
 
 const {
+  RECRUIT_CONFIG,
   ROLE_IDS
 } = require('../config/constants');
 
@@ -984,7 +985,7 @@ module.exports = {
 
 
           /*
-           * 신입 10P 자동등업 확인
+           * 신입 자동등업 확인
            */
           const promotionResult =
             await promoteNewbieIfEligible(
@@ -1086,7 +1087,7 @@ module.exports = {
 
         await interaction.channel.send({
           content:
-            `🎉 ${mentions.join(' ')}님이 **10P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
+            `🎉 ${mentions.join(' ')}님이 **${RECRUIT_CONFIG.NEWBIE_PROMOTION_POINTS}P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
             '희희낙락 정식 멤버가 되신 걸 축하드립니다 💛',
 
           allowedMentions: {

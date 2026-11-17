@@ -351,7 +351,7 @@ module.exports = {
       'PROMOTED'
     ) {
       promotionMessage =
-        '\n\n🌱➡️💛 **10P 달성! 신입 → 멤버 자동등업 완료!**';
+        `\n\n🌱➡️💛 **${promotionResult.threshold}P 달성! 신입 → 멤버 자동등업 완료!**`;
 
     } else if (
       promotionResult.code ===
@@ -392,7 +392,7 @@ module.exports = {
     ) {
       await interaction.channel.send({
         content:
-          `🎉 <@${target.id}>님이 **10P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
+          `🎉 <@${target.id}>님이 **${promotionResult.threshold}P를 달성하여 신입에서 멤버로 승급**했어요!\n` +
           '희희낙락 정식 멤버가 되신 걸 축하드립니다 💛',
 
         allowedMentions: {

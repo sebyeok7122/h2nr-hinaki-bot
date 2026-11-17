@@ -7,7 +7,8 @@ const {
 } = require('../config/constants');
 
 const {
-  addPoints
+  addPoints,
+  promoteNewbieIfEligible
 } = require('./pointService');
 
 
@@ -288,20 +289,34 @@ const claimCompletedProgress =
 
 
 /*
- * 신입활동은 멤버별 하루 1회만 인정합니다.
- *
- * 한국시간(KST) 기준으로 오늘 이미 qualified 활동기록이 있다면
- * 다른 신입과 또 활동하더라도 추가 기록을 만들지 않습니다.
- *
- * 따라서 하루 두 번째 신입파티부터는
- * - +3P 추가 지급 X
- * - /신입활동 횟수 추가 X
- *
- * 신입이 같은 사람인지 다른 사람인지는 상관없습니다.
+ * 두 역할의 보상을 합쳐 1인당 하루(KST) 한 번만 지급합니다.
+ * 신입 본인의 +1P는 포인트 원장에만 저장해
+ * 기존의 활동 랭킹과 뉴비메이트 집계에는 포함하지 않습니다.
  */
-const insertActivityRecord =
-  db.prepare(`
-    INSERT OR IGNORE INTO newbie_activity (
+const NEWBIE_PARTICIPATION_SOURCE = 'NEWBIE_PARTY_PARTICIPATION';
+
+const selectDailyReward = db.prepare(`
+    SELECT 1
+    FROM newbie_activity
+    WHERE guild_id = @guildId
+      AND user_id = @userId
+      AND qualified = 1
+      AND date(completed_at, '+9 hours') = date('now', '+9 hours')
+
+    UNION ALL
+
+    SELECT 1
+    FROM point_transactions
+    WHERE guild_id = @guildId
+      AND user_id = @userId
+      AND source = @newbieSource
+      AND date(created_at, '+9 hours') = date('now', '+9 hours')
+
+    LIMIT 1
+  `);
+
+const insertActivityRecord = db.prepare(`
+    INSERT INTO newbie_activity (
       guild_id,
       recruitment_id,
       user_id,
@@ -310,41 +325,8 @@ const insertActivityRecord =
       points_awarded,
       completed_at
     )
-
-    SELECT
-      ?,
-      ?,
-      ?,
-      ?,
-      1,
-      0,
-      datetime('now')
-
-    WHERE NOT EXISTS (
-      SELECT 1
-
-      FROM newbie_activity
-
-      WHERE
-        guild_id = ?
-        AND user_id = ?
-        AND qualified = 1
-
-        AND date(
-          datetime(
-            completed_at,
-            '+9 hours'
-          )
-        ) =
-        date(
-          datetime(
-            'now',
-            '+9 hours'
-          )
-        )
-    )
+    VALUES (?, ?, ?, ?, 1, 0, datetime('now'))
   `);
-
 
 const updateActivityPoints =
   db.prepare(`
@@ -638,183 +620,108 @@ function isNewbiePartyGoalReached(
 
 
 /*
- * 목표시간을 채운 신입파티의
- * 도우미들에게 활동기록 / 포인트를 지급합니다.
- *
- * 단, 신입활동 인정은 멤버별 하루 1회입니다.
+ * 완료 처리와 두 역할의 포인트 지급을 한 DB 트랜잭션으로 묶습니다.
+ * 활동 횟수는 기존 멤버에게만 기록합니다.
  */
-const completePartyTransaction =
-  db.transaction(
-    (
-      guildId,
+const completePartyTransaction = db.transaction(
+  (guildId, recruitmentId, { helperUserIds, newbieUserIds }) => {
+    const claim = claimCompletedProgress.run(
       recruitmentId,
-      helperUserIds
-    ) => {
-      const claim =
-        claimCompletedProgress.run(
-          recruitmentId,
-          REQUIRED_SECONDS
-        );
+      REQUIRED_SECONDS
+    );
 
-
-      /*
-       * 아직 시간이 안 됐거나
-       * 이미 완료된 구인
-       */
-      if (
-        claim.changes === 0
-      ) {
-        return {
-          code:
-            'NOT_READY_OR_COMPLETED',
-
-          awardedUserIds:
-            [],
-
-          dailyLimitUserIds:
-            [],
-        };
-      }
-
-
-      const progress =
-        getNewbiePartyProgress(
-          recruitmentId
-        );
-
-
-      const voiceMinutes =
-        Math.floor(
-          (
-            progress?.totalSeconds ||
-            REQUIRED_SECONDS
-          ) / 60
-        );
-
-
-      const uniqueHelpers = [
-        ...new Set(
-          helperUserIds
-        ),
-      ];
-
-
-      const awardedUserIds = [];
-
-      const dailyLimitUserIds = [];
-
-
-      for (
-        const userId of uniqueHelpers
-      ) {
-        /*
-         * 오늘 처음 인정되는 신입활동일 때만
-         * 활동기록을 새로 만듭니다.
-         *
-         * 이미 오늘 신입활동 기록이 있으면
-         * changes === 0이 되어 포인트도 지급하지 않습니다.
-         */
-        const activityResult =
-          insertActivityRecord.run(
-            guildId,
-            recruitmentId,
-            userId,
-            voiceMinutes,
-            guildId,
-            userId
-          );
-
-
-        if (
-          activityResult.changes === 0
-        ) {
-          dailyLimitUserIds.push(
-            userId
-          );
-
-          continue;
-        }
-
-
-        const pointResult =
-          addPoints({
-            guildId,
-            userId,
-
-            amount:
-              RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS,
-
-            source:
-              'NEWBIE_PARTY_ACTIVITY',
-
-            description:
-              '신입파티 활동 완료',
-
-            referenceType:
-              'RECRUITMENT',
-
-            referenceId:
-              String(
-                recruitmentId
-              ),
-          });
-
-
-        if (
-          pointResult.code !==
-          'OK'
-        ) {
-          throw new Error(
-            `신입파티 포인트 지급 실패: ${userId}`
-          );
-        }
-
-
-        updateActivityPoints.run(
-          RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS,
-          recruitmentId,
-          userId
-        );
-
-
-        awardedUserIds.push(
-          userId
-        );
-      }
-
-
-      return {
-        code:
-          'COMPLETED',
-
-        awardedUserIds,
-
-        dailyLimitUserIds,
-
-        pointsEach:
-          RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS,
-
-        progress:
-          getNewbiePartyProgress(
-            recruitmentId
-          ),
-      };
+    if (claim.changes === 0) {
+      return { code: 'NOT_READY_OR_COMPLETED' };
     }
-  );
+
+    const progress = getNewbiePartyProgress(recruitmentId);
+    const voiceMinutes = Math.floor(
+      (progress?.totalSeconds || REQUIRED_SECONDS) / 60
+    );
+    const newbieIds = new Set(newbieUserIds);
+    const participantIds = new Set([...helperUserIds, ...newbieIds]);
+    const awards = [];
+    const dailyLimitUserIds = [];
+
+    for (const userId of participantIds) {
+      if (selectDailyReward.get({
+        guildId,
+        userId,
+        newbieSource: NEWBIE_PARTICIPATION_SOURCE,
+      })) {
+        dailyLimitUserIds.push(userId);
+        continue;
+      }
+
+      const isNewbie = newbieIds.has(userId);
+      const points = isNewbie
+        ? RECRUIT_CONFIG.NEWBIE_PARTICIPATION_POINTS
+        : RECRUIT_CONFIG.NEWBIE_ACTIVITY_POINTS;
+
+      if (!isNewbie) {
+        insertActivityRecord.run(guildId, recruitmentId, userId, voiceMinutes);
+      }
+
+      const result = addPoints({
+        guildId,
+        userId,
+        amount: points,
+        source: isNewbie
+          ? NEWBIE_PARTICIPATION_SOURCE
+          : 'NEWBIE_PARTY_ACTIVITY',
+        description: isNewbie ? '신입파티 신입 참여 완료' : '신입파티 활동 완료',
+        referenceType: 'RECRUITMENT',
+        referenceId: String(recruitmentId),
+      });
+
+      if (result.code !== 'OK') {
+        throw new Error(`신입파티 포인트 지급 실패: ${userId}`);
+      }
+
+      if (!isNewbie) {
+        updateActivityPoints.run(points, recruitmentId, userId);
+      }
+
+      awards.push({ userId, points, isNewbie });
+    }
+
+    return { code: 'COMPLETED', awards, dailyLimitUserIds, progress };
+  }
+);
 
 
-function completeNewbieParty(
-  guildId,
-  recruitmentId,
-  helperUserIds
-) {
-  return completePartyTransaction(
-    guildId,
-    recruitmentId,
-    helperUserIds
-  );
+function completeNewbieParty(guildId, recruitmentId, participants) {
+  return completePartyTransaction(guildId, recruitmentId, participants);
 }
 
+
+/*
+ * Discord 역할 변경은 DB 지급 완료 뒤에 처리합니다.
+ * 역할 변경에 실패해도 지급 결과는 그대로 안내합니다.
+ */
+async function promoteAwardedNewbies(guild, awards) {
+  const promotedUserIds = [];
+
+  for (const { userId, isNewbie } of awards) {
+    if (!isNewbie) {
+      continue;
+    }
+
+    try {
+      const result = await promoteNewbieIfEligible(guild, userId);
+
+      if (result.code === 'PROMOTED') {
+        promotedUserIds.push(userId);
+      } else if (result.error) {
+        console.warn(`⚠️ [신입활동] 자동등업 실패: ${userId}`, result.error.message);
+      }
+    } catch (error) {
+      console.warn(`⚠️ [신입활동] 자동등업 실패: ${userId}`, error.message);
+    }
+  }
+
+  return promotedUserIds;
+}
 
 module.exports = {
   getActiveNewbieParties,
@@ -831,4 +738,5 @@ module.exports = {
 
   isNewbiePartyGoalReached,
   completeNewbieParty,
+  promoteAwardedNewbies,
 };
