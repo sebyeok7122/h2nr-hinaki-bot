@@ -218,7 +218,7 @@ async function processExpiredRecruitments(client) {
     const result = autoEndTransaction(recruitment);
     if (result.code !== 'ENDED') continue;
 
-    await updateOriginalMessage(client, recruitment);
+    // 자동 종료 시 원본 구인글은 수정하지 않습니다.
     await notifyWatchers(client, result.watcherIds, recruitment);
 
     console.log(
